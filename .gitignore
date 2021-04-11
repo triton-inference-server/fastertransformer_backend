@@ -1,0 +1,7 @@
+/build
+/.vscode
+*.so
+*.run
+.clangd
+compile_commands.json
+../all_models/transformer/1/*
