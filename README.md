@@ -49,7 +49,7 @@ We provide a docker file, which bases on Triton image `nvcr.io/nvidia/tritonserv
 
 ```bash
 mkdir workspace && cd workspace 
-git clone https://gitlab-master.nvidia.com/liweim/transformer_backend.git
+git clone https://github.com/triton-inference-server/fastertransformer_backend.git
 nvidia-docker build --tag ft_backend --file transformer_backend/Dockerfile .
 nvidia-docker run --gpus=all -it --rm --volume $HOME:$HOME --volume $PWD:$PWD -w $PWD --name ft-work  ft_backend
 cd workspace
