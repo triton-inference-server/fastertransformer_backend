@@ -27,7 +27,7 @@
 
 # export CUDA_VISIBLE_DEVICES=0
 
-CLIENT_PY=$WORKSPACE/transformer_backend/tools/identity_test.py
+CLIENT_PY=$WORKSPACE/fastertransformer_backend/tools/identity_test.py
 CLIENT_LOG="./client.log"
 
 rm -rf client.log err.log
