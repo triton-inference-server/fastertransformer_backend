@@ -119,4 +119,3 @@ The model configuration for Triton server is put in `all_models/transformer/conf
 - decoder_layers: number of transformer layers
 - batch_size: max supported batch size
 - is_fuse_QKV: fusing QKV in one matrix multiplication or not. It also depends on the weights of QKV.
-
