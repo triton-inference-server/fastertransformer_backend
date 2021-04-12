@@ -30,9 +30,7 @@
 
 The Triton backend for the [FasterTransformer](https://github.com/NVIDIA/FasterTransformer). This repository provides a script and recipe to run the highly optimized transformer-based encoder and decoder component, and it is tested and maintained by NVIDIA. In the FasterTransformer v4.0, it supports multi-gpu inference on GPT-3 model. This backend integrates FasterTransformer into Triton to use giant GPT-3 model serving by Triton. In the below example, we will show how to use the FasterTransformer backend in Triton to run inference on a GPT-3 model with 345M parameters trained by [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
 
-Note that this is a research and prototyping tool, not a formal product or maintained framework. User can learn more about Triton backends in the [backend repo](https://github.com/triton-inference-server/backend). Ask questions or report problems on the issues page in this FasterTransformer_backend repo.
-
-<!-- TODO Add the FasterTransformer_backend issue link -->
+Note that this is a research and prototyping tool, not a formal product or maintained framework. User can learn more about Triton backends in the [backend repo](https://github.com/triton-inference-server/backend). Ask questions or report problems on the [issues page](https://github.com/triton-inference-server/fastertransformer_backend/issues) in this FasterTransformer_backend repo.
 
 ## Table Of Contents
 
@@ -49,8 +47,8 @@ We provide a docker file, which bases on Triton image `nvcr.io/nvidia/tritonserv
 
 ```bash
 mkdir workspace && cd workspace 
-git clone https://gitlab-master.nvidia.com/liweim/transformer_backend.git
-nvidia-docker build --tag ft_backend --file transformer_backend/Dockerfile .
+git clone https://github.com/triton-inference-server/fastertransformer_backend.git
+nvidia-docker build --tag ft_backend --file fastertransformer_backend/Dockerfile .
 nvidia-docker run --gpus=all -it --rm --volume $HOME:$HOME --volume $PWD:$PWD -w $PWD --name ft-work  ft_backend
 cd workspace
 export WORKSPACE=$(pwd)
@@ -71,8 +69,8 @@ pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp
 cd $WORKSPACE
 git clone https://github.com/triton-inference-server/server.git
 export PATH=/usr/local/mpi/bin:$PATH
-source transformer_backend/build.env
-mkdir -p transformer_backend/build && cd $WORKSPACE/transformer_backend/build
+source fastertransformer_backend/build.env
+mkdir -p fastertransformer_backend/build && cd $WORKSPACE/fastertransformer_backend/build
 cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 .. && make -j32
 ```
 
@@ -87,7 +85,7 @@ mkdir -p models/megatron-models/345m
 unzip megatron_lm_345m_v0.0.zip -d models/megatron-models/345m
 python ../sample/pytorch/utils/megatron_ckpt_convert.py -i ./models/megatron-models/345m/release/ -o ./models/megatron-models/c-model/345m/ -t_g 1 -i_g 8
 python _deps/repo-ft-src/sample/pytorch/utils/megatron_ckpt_convert.py -i ./models/megatron-models/345m/release/ -o ./models/megatron-models/c-model/345m/ -t_g 1 -i_g 8
-cp ./models/megatron-models/c-model/345m/8-gpu $WORKSPACE/transformer_backend/all_models/transformer/1/ -r
+cp ./models/megatron-models/c-model/345m/8-gpu $WORKSPACE/fastertransformer_backend/all_models/transformer/1/ -r
 ```
 
 ## Run Serving
@@ -95,12 +93,12 @@ cp ./models/megatron-models/c-model/345m/8-gpu $WORKSPACE/transformer_backend/al
 * Run servning directly
 
 ```bash
-cp $WORKSPACE/transformer_backend/build/libtriton_transformer.so $WORKSPACE/transformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer
+cp $WORKSPACE/fastertransformer_backend/build/libtriton_transformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer
 cd $WORKSPACE && ln -s server/qa/common .
-# Recommend to modify the SERVER_TIMEOUT of common/utils.sh to longer time
-cd $WORKSPACE/transformer_backend/build/
-bash $WORKSPACE/transformer_backend/tools/run_server.sh
-bash $WORKSPACE/transformer_backend/tools/run_client.sh
+# Recommend to modify the SERVER_TIMEOUT of common/util.sh to longer time
+cd $WORKSPACE/fastertransformer_backend/build/
+bash $WORKSPACE/fastertransformer_backend/tools/run_server.sh
+bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
 python _deps/repo-ft-src/sample/pytorch/utils/convert_gpt_token.py --out_file=triton_out # Used for checking result
 ```
 
@@ -121,3 +119,4 @@ The model configuration for Triton server is put in `all_models/transformer/conf
 - decoder_layers: number of transformer layers
 - batch_size: max supported batch size
 - is_fuse_QKV: fusing QKV in one matrix multiplication or not. It also depends on the weights of QKV.
+

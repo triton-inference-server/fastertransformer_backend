@@ -28,7 +28,7 @@
 # export CUDA_VISIBLE_DEVICES=0
 
 SERVER=/opt/tritonserver/bin/tritonserver
-SERVER_ARGS="--model-repository=$WORKSPACE/transformer_backend/all_models"
+SERVER_ARGS="--model-repository=$WORKSPACE/fastertransformer_backend/all_models"
 SERVER_LOG="./inference_server.log"
 source $WORKSPACE/common/util.sh
 
