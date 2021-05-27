@@ -87,14 +87,13 @@ FetchContent_Declare(
   GIT_TAG ${TRITON_BACKEND_REPO_TAG}
   GIT_SHALLOW ON
 )
-#FetchContent_Declare(
-#  repo-ft
-#  GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer.git
-#  GIT_TAG main
-#  GIT_SHALLOW ON
-#)
-#FetchContent_MakeAvailable(repo-common repo-core repo-backend repo-ft)
-FetchContent_MakeAvailable(repo-common repo-core repo-backend)
+FetchContent_Declare(
+  repo-ft
+  GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer.git
+  GIT_TAG main
+  GIT_SHALLOW ON
+)
+FetchContent_MakeAvailable(repo-common repo-core repo-backend repo-ft)
 
 #
 # CUDA
@@ -141,18 +140,14 @@ target_include_directories(
   ${TRITON_PYTORCH_INCLUDE_PATHS}
   ${Python3_INCLUDE_DIRS}
   ${MPI_INCLUDE_PATH}
-  #${repo-ft_SOURCE_DIR}
-  ${PROJECT_SOURCE_DIR}/FasterTransformer
+  ${repo-ft_SOURCE_DIR}
   )
-
-set(FasterTransformer_Libraries ${PROJECT_SOURCE_DIR}/FasterTransformer/build/lib)
 
 target_link_directories(
   triton-transformer-backend
   PRIVATE
   ${CUDA_PATH}/lib64
   ${MPI_Libraries}
-  ${FasterTransformer_Libraries}
   )
 
 target_compile_features(triton-transformer-backend PRIVATE cxx_std_14)
