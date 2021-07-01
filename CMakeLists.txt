@@ -168,7 +168,7 @@ set_target_properties(
   triton-transformer-backend
   PROPERTIES
     POSITION_INDEPENDENT_CODE ON
-    OUTPUT_NAME triton_transformer
+    OUTPUT_NAME triton_fastertransformer
     SKIP_BUILD_RPATH TRUE
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH_USE_LINK_PATH FALSE
@@ -243,8 +243,8 @@ install(
     triton-transformer-backend
   EXPORT
     triton-transformer-backend-targets
-  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/transformer
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/transformer
+  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/fastertransformer
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/fastertransformer
 )
 
 install(
