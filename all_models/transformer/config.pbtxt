@@ -80,7 +80,7 @@ parameters {
 parameters {
   key: "layer_para_size"
   value: {
-    string_value: "1"
+    string_value: "2"
   }
 }
 parameters {
@@ -141,5 +141,17 @@ parameters {
   key: "is_fuse_QKV"
   value: {
     string_value: "1"
+  }
+}
+parameters {
+  key: "temperature"
+  value: {
+    string_value: "1.0"
+  }
+}
+parameters {
+  key: "repetition_penalty"
+  value: {
+    string_value: "1.0"
   }
 }

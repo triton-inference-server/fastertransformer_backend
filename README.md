@@ -71,7 +71,28 @@ git clone https://github.com/triton-inference-server/server.git
 export PATH=/usr/local/mpi/bin:$PATH
 source fastertransformer_backend/build.env
 mkdir -p fastertransformer_backend/build && cd $WORKSPACE/fastertransformer_backend/build
-cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 .. && make -j32
+cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 ..
+```
+
+* **Modify triton_backend to run on multiple nodes**
+
+Go to the triton_backend, and modify on `transformer.hpp` (remove the const before `data`).
+```bash
+cd /home/account_name/workspace/fastertransformer_backend/build/_deps/repo-ft-src/fastertransformer/triton_backend
+```
+
+```c++
+struct Tensor {
+  //std::string name;
+  const MemoryType where;
+  const DataType type;
+  const std::vector<int64_t> shape;
+  void* data;//remove const
+};
+```
+
+```bash
+make -j32
 ```
 
 * Prepare model
@@ -88,7 +109,19 @@ python _deps/repo-ft-src/sample/pytorch/utils/megatron_ckpt_convert.py -i ./mode
 cp ./models/megatron-models/c-model/345m/8-gpu $WORKSPACE/fastertransformer_backend/all_models/transformer/1/ -r
 ```
 
-## Run Serving
+* **Prepare the ft-triton-backend docker**
+
+Push a ft-triton-backend-docker so that we can initilize them on multiple nodes
+
+```bash
+ctrl p + ctrl q #detach a container
+docker ps -a #get the container name
+docker commit container_name github_or_gitlab/repo_name/image_name:latest
+docker push github_or_gitlab/repo_name/image_name:latest
+```
+
+
+## Run Serving on Single Node
 
 * Run servning directly
 
@@ -119,3 +152,73 @@ The model configuration for Triton server is put in `all_models/transformer/conf
 - decoder_layers: number of transformer layers
 - batch_size: max supported batch size
 - is_fuse_QKV: fusing QKV in one matrix multiplication or not. It also depends on the weights of QKV.
+
+## How to Run multi-node on the Cluster with Enroot/Pyxis support
+
+**Warp up everything in a docker**: as described in *Modify triton_backend to run on multiple nodes*, *Prepare the ft-triton-backend docker* step.
+
+First allocate two nodes:
+
+```bash
+salloc -A account_name -t 10:00:00 -N 2
+```
+
+Then run the script shown below to start two nodes' server. `Ctrl+Z` and `bg` in order to run on the background.
+-N and -n should be equal to the number of nodes because we start one process per node. If you need to run on three nodes, then -N 3 and -n 3.
+Remeber to change `tensor_para_size` and `layer_para_size` if you run on multiple nodes (`total number of gpus = num_gpus_per_node x num_nodes = tensor_para_size x layer_para_size`), we do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100), and layer_para_size = number of nodes (2 for two nodes). Other model configuration in config.pbtxt should be modified as normal.
+
+```bash
+WORKSPACE="/home/name/workspace" # the dir you build the docker
+IMAGE="github_or_gitlab/fastertransformer/multi-node-ft-triton-backend:latest"
+CMD="cp $WORKSPACE/fastertransformer_backend/build/libtriton_transformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer;/opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models"
+srun -N 2 -n 2 --mpi=pmix -o inference_server.log --container-name multi-node-ft-triton  --container-image $IMAGE bash -c "$CMD"
+```
+
+Next, enter the master triton node (the node where MPI_Rank = 0, normally it is the allocated node with the smallest id) when servers have been started shown in the inference log:
+
+```bash
+srun -w master-node-name --overlap --container-name multi-node-ft-triton --pty bash
+```
+
+Finally, run the client in the master triton node:
+
+```bash
+export WORKSPACE="/home/name/workspace"
+bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
+```
+
+You can refer to `inference_server.log` on the login-node for the inference server log.
+When you enter the master triton node, and send a request through the client, you can get the `client.log`, `error.log` and `triton_out` in the current directory.
+
+You can modify `$WORKSPACE/fastertransformer_backend/tools/identity_test.py` to have different `batch size`, `input length` and `output length` in requests.
+
+## How to Run multi-node on the Cluster with Slurm and Docker support
+
+In order to run multiple nodes, you have to make sure that two nodes can access to each other without ssh issues. The process is almost the same as Enroot/Pyxis clusters: run servers on two nodes with MPIRUN or PMIX, and go to the master node to send requests to servers through the client. The script may differ according to your clusters and environment, but all need to make sure two nodes can get ssh access to each other and call MPIRUN on two nodes.
+
+```bash
+export IMAGE="github_or_gitlab/fastertransformer/multi-node-ft-triton-backend:latest" # the image you update in the previous step
+export WORKSPACE="/home/name/workspace" # your workspace
+
+srun -N2 -n2 -t 600 --pty bash # Assume the two nodes are luna-01, luna-02
+
+srun -N2 -n2 docker pull $IMAGE
+
+srun -N2 -n2  nvidia-docker run -itd --rm --privileged --network=host --pid=host --cap-add=IPC_LOCK --device=/dev/infiniband -v /$CONT_VOL:$HOST_VOL -w $WORKSPACE --name ft-backend-test $IMAGE /bin/bash
+
+#set up ssh
+srun -N2 -n2  nvidia-docker exec -i --env SLURM_NTASKS --env SLURM_NODEID --env SLURM_PROCID --env SLURM_STEP_NODELIST --env SLURMD_NODENAME --privileged ft-backend-test bash -c "mkdir /root/.ssh && cp $PWD/.ssh/* /root/.ssh && chmod 700 /root/.ssh && chmod 640 /root/.ssh/authorized_keys && chmod 400 /root/.ssh/id_rsa && apt-get update && apt-get install ssh -y && mkdir /run/sshd/ && /usr/sbin/sshd -p 11068 && nvidia-smi -lgc 1530"
+
+# luna-01, luna-02
+nvidia-docker exec -ti ft-backend-test bash
+
+cd fastertransformer_backend/build
+
+mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" cp $WORKSPACE/fastertransformer_backend/build/libtriton_transformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer
+
+mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models &
+
+bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
+```
+
+
