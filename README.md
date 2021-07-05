@@ -48,9 +48,11 @@ We provide a docker file, which bases on Triton image `nvcr.io/nvidia/tritonserv
 ```bash
 mkdir workspace && cd workspace 
 git clone https://github.com/triton-inference-server/fastertransformer_backend.git
+cd fastertransformer_backend
+git checkout v1.1-dev
+cd ../
 nvidia-docker build --tag ft_backend --file fastertransformer_backend/Dockerfile .
-nvidia-docker run --gpus=all -it --rm --volume $HOME:$HOME --volume $PWD:$PWD -w $PWD --name ft-work  ft_backend
-cd workspace
+nvidia-docker run --gpus=all -it --rm --volume $PWD:/workspace -w /workspace --name ft-work  ft_backend
 export WORKSPACE=$(pwd)
 ```
 
@@ -71,28 +73,7 @@ git clone https://github.com/triton-inference-server/server.git
 export PATH=/usr/local/mpi/bin:$PATH
 source fastertransformer_backend/build.env
 mkdir -p fastertransformer_backend/build && cd $WORKSPACE/fastertransformer_backend/build
-cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 ..
-```
-
-* **Modify triton_backend to run on multiple nodes**
-
-Go to the triton_backend, and modify on `transformer.hpp` (remove the const before `data`).
-```bash
-cd /home/account_name/workspace/fastertransformer_backend/build/_deps/repo-ft-src/fastertransformer/triton_backend
-```
-
-```c++
-struct Tensor {
-  //std::string name;
-  const MemoryType where;
-  const DataType type;
-  const std::vector<int64_t> shape;
-  void* data;//remove const
-};
-```
-
-```bash
-make -j32
+cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 .. && make -j32
 ```
 
 * Prepare model
@@ -155,7 +136,7 @@ The model configuration for Triton server is put in `all_models/transformer/conf
 
 ## How to Run multi-node on the Cluster with Enroot/Pyxis support
 
-**Warp up everything in a docker**: as described in *Modify triton_backend to run on multiple nodes*, *Prepare the ft-triton-backend docker* step.
+**Warp up everything in a docker**: as described in *Prepare the ft-triton-backend docker* step.
 
 First allocate two nodes:
 
@@ -168,22 +149,22 @@ Then run the script shown below to start two nodes' server. `Ctrl+Z` and `bg` in
 Remeber to change `tensor_para_size` and `layer_para_size` if you run on multiple nodes (`total number of gpus = num_gpus_per_node x num_nodes = tensor_para_size x layer_para_size`), we do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100), and layer_para_size = number of nodes (2 for two nodes). Other model configuration in config.pbtxt should be modified as normal.
 
 ```bash
-WORKSPACE="/home/name/workspace" # the dir you build the docker
+WORKSPACE="/workspace" # the dir you build the docker
 IMAGE="github_or_gitlab/fastertransformer/multi-node-ft-triton-backend:latest"
-CMD="cp $WORKSPACE/fastertransformer_backend/build/libtriton_transformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer;/opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models"
-srun -N 2 -n 2 --mpi=pmix -o inference_server.log --container-name multi-node-ft-triton  --container-image $IMAGE bash -c "$CMD"
+CMD="cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/fastertransformer;/opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models"
+srun -N 2 -n 2 --mpi=pmix -o inference_server.log --container-mounts /home/account/your_network_shared_space/triton:/workspace --container-name multi-node-ft-triton --container-image $IMAGE bash -c "$CMD"
 ```
 
 Next, enter the master triton node (the node where MPI_Rank = 0, normally it is the allocated node with the smallest id) when servers have been started shown in the inference log:
 
 ```bash
-srun -w master-node-name --overlap --container-name multi-node-ft-triton --pty bash
+srun -w master-node-name --overlap --container-name multi-node-ft-triton --container-mounts /home/account/your_network_shared_space/triton:/workspace --pty bash # --overlap may not be needed in your slurm environment
 ```
 
 Finally, run the client in the master triton node:
 
 ```bash
-export WORKSPACE="/home/name/workspace"
+export WORKSPACE="/workspace"
 bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
 ```
 

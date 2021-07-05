@@ -97,7 +97,7 @@ if __name__ == '__main__':
     # warmup
     if FLAGS.protocol == "http":
         request_parallelism = 10
-        model_name = "transformer"
+        model_name = "fastertransformer"
         # shape = [8, 8]
         with client_util.InferenceServerClient(FLAGS.url,
                                                concurrency=request_parallelism,
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     request_parallelism = 10
     start_time = datetime.now()
     if FLAGS.protocol == "http":
-        model_name = "transformer"
+        model_name = "fastertransformer"
         # shape = [8, 8]
         with client_util.InferenceServerClient(FLAGS.url,
                                                concurrency=request_parallelism,
