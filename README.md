@@ -106,11 +106,12 @@ docker push github_or_gitlab/repo_name/image_name:latest
 * Run servning directly
 
 ```bash
-cp $WORKSPACE/fastertransformer_backend/build/libtriton_transformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer
+cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/fastertransformer
 cd $WORKSPACE && ln -s server/qa/common .
 # Recommend to modify the SERVER_TIMEOUT of common/util.sh to longer time
 cd $WORKSPACE/fastertransformer_backend/build/
-bash $WORKSPACE/fastertransformer_backend/tools/run_server.sh
+# bash $WORKSPACE/fastertransformer_backend/tools/run_server.sh # This method fails since we add MPI features
+mpirun -n 1 /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models/ &
 bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
 python _deps/repo-ft-src/sample/pytorch/utils/convert_gpt_token.py --out_file=triton_out # Used for checking result
 ```
@@ -184,10 +185,10 @@ srun -N2 -n2 -t 600 --pty bash # Assume the two nodes are luna-01, luna-02
 
 srun -N2 -n2 docker pull $IMAGE
 
-srun -N2 -n2  nvidia-docker run -itd --rm --privileged --network=host --pid=host --cap-add=IPC_LOCK --device=/dev/infiniband -v /$CONT_VOL:$HOST_VOL -w $WORKSPACE --name ft-backend-test $IMAGE /bin/bash
+srun -N2 -n2  nvidia-docker run -itd --rm --privileged --network=host --pid=host --cap-add=IPC_LOCK --device=/dev/infiniband -v /$CONT_VOL:$HOST_VOL -v $WORKSPACE:$WORKSPACE -w $WORKSPACE --name ft-backend-test $IMAGE /bin/bash
 
 #set up ssh
-srun -N2 -n2  nvidia-docker exec -i --env SLURM_NTASKS --env SLURM_NODEID --env SLURM_PROCID --env SLURM_STEP_NODELIST --env SLURMD_NODENAME --privileged ft-backend-test bash -c "mkdir /root/.ssh && cp $PWD/.ssh/* /root/.ssh && chmod 700 /root/.ssh && chmod 640 /root/.ssh/authorized_keys && chmod 400 /root/.ssh/id_rsa && apt-get update && apt-get install ssh -y && mkdir /run/sshd/ && /usr/sbin/sshd -p 11068 && nvidia-smi -lgc 1530"
+srun -N2 -n2  nvidia-docker exec -i --env SLURM_NTASKS --env SLURM_NODEID --env SLURM_PROCID --env SLURM_STEP_NODELIST --env SLURMD_NODENAME --privileged ft-backend-test bash -c "mkdir /root/.ssh && cp $WORKSPACE/ssh/* /root/.ssh && chmod 700 /root/.ssh && chmod 640 /root/.ssh/authorized_keys && chmod 400 /root/.ssh/id_rsa && apt-get update && apt-get install ssh -y && mkdir /run/sshd/ && /usr/sbin/sshd -p 11068 && nvidia-smi -lgc 1530"
 
 # luna-01, luna-02
 nvidia-docker exec -ti ft-backend-test bash
