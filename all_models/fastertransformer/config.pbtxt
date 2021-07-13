@@ -24,8 +24,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-name: "transformer"
-backend: "transformer"
+name: "fastertransformer"
+backend: "fastertransformer"
 default_model_filename: "gpt3-c-model-8gpu"
 max_batch_size: 128
 input [
@@ -80,7 +80,7 @@ parameters {
 parameters {
   key: "layer_para_size"
   value: {
-    string_value: "1"
+    string_value: "2"
   }
 }
 parameters {
@@ -141,5 +141,17 @@ parameters {
   key: "is_fuse_QKV"
   value: {
     string_value: "1"
+  }
+}
+parameters {
+  key: "temperature"
+  value: {
+    string_value: "1.0"
+  }
+}
+parameters {
+  key: "repetition_penalty"
+  value: {
+    string_value: "1.0"
   }
 }

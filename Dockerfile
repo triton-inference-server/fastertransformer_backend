@@ -126,15 +126,12 @@ RUN go get github.com/golang/protobuf/protoc-gen-go && \
 COPY --from=sdk_image /workspace/install/python/tritonclient-2.7.0-py3-none-manylinux1_x86_64.whl /tmp/
 RUN pip3 install --upgrade /tmp/tritonclient-2.7.0-py3-none-manylinux1_x86_64.whl[all]
 
-RUN mkdir /opt/tritonserver/backends/transformer && chmod 777 /opt/tritonserver/backends/transformer
+RUN mkdir /opt/tritonserver/backends/fastertransformer && chmod 777 /opt/tritonserver/backends/fastertransformer
 
 FROM ftbe_sdk as ftbe_work
 # for debug
 RUN apt update -q && apt install -y --no-install-recommends openssh-server zsh tmux mosh locales-all clangd sudo
 RUN sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config
 RUN mkdir /var/run/sshd
-
-## add user because root cannot access mounted user's directories.
-RUN useradd --uid 40235 --shell /bin/bash liweim
 
 ENTRYPOINT service ssh restart && bash
