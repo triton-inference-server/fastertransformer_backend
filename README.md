@@ -48,8 +48,6 @@ We provide a docker file, which bases on Triton image `nvcr.io/nvidia/tritonserv
 ```bash
 mkdir workspace && cd workspace 
 git clone https://github.com/triton-inference-server/fastertransformer_backend.git
-cd fastertransformer_backend
-cd ../
 nvidia-docker build --tag ft_backend --file fastertransformer_backend/Dockerfile .
 nvidia-docker run --gpus=all -it --rm --volume $PWD:/workspace -w /workspace --name ft-work  ft_backend
 export WORKSPACE=$(pwd)
