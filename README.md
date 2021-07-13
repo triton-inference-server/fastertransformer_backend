@@ -192,7 +192,7 @@ nvidia-docker exec -ti ft-backend-test bash
 
 cd fastertransformer_backend/build
 
-mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" cp $WORKSPACE/fastertransformer_backend/build/libtriton_transformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer
+mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer
 
 mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models &
 
