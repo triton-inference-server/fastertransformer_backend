@@ -248,6 +248,15 @@ install(
 )
 
 install(
+  TARGETS
+    transformer-shared
+  EXPORT
+    triton-transformer-backend-targets
+  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/fastertransformer
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/fastertransformer
+)
+
+install(
   EXPORT
     triton-transformer-backend-targets
   FILE
