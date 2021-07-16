@@ -95,9 +95,9 @@ class ModelState : public BackendModel {
   TRITONSERVER_Error* AutoCompleteConfig();
   std::shared_ptr<AbstractTransformerModel> ftModel;
   int node_id, gpu_size, world_size;
-  ncclComm_t tensor_nccl_comms[8];
-  ncclComm_t layer_nccl_comms[8];
-  cudaStream_t streams_[8];
+  ncclComm_t tensor_nccl_comms[16];
+  ncclComm_t layer_nccl_comms[16];
+  cudaStream_t streams_[16];
   std::vector<ncclUniqueId> nccl_ids;
 };
 
@@ -374,7 +374,7 @@ class ModelInstanceState : public BackendModelInstance {
   std::string model_path_;
 
 
-  std::unique_ptr<AbstractTransformerModelInstance> ft_model_instance_[8];
+  std::unique_ptr<AbstractTransformerModelInstance> ft_model_instance_[16];
 
   // Map from configuration name for an input to the index of
   // that input in the model.
