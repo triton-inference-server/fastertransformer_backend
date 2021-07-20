@@ -39,13 +39,6 @@ from tritonclientutils import np_to_triton_dtype
 
 FLAGS = None
 
-START_LEN = 8
-OUTPUT_LEN = 24
-BATCH_SIZE = 8
-
-start_id = 220
-end_id = 50256
-# random_start_ids = np.random.randint(0, 50255, size=(BATCH_SIZE, START_LEN), dtype=np.uint32)
 random_start_ids = np.array([[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
                              [6601, 4237, 345, 460, 779, 284, 787, 257],
                              [59, 77, 611, 7, 9248, 796, 657, 8],
@@ -54,8 +47,6 @@ random_start_ids = np.array([[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
                              [13256, 11, 281, 1605, 3370, 11, 1444, 6771],
                              [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
                              [6601, 4237, 345, 460, 779, 284, 787, 257]], np.uint32)
-input_len = np.array([ [sentence.size] for sentence in random_start_ids ], np.uint32)
-output_len = np.ones_like(input_len).astype(np.uint32) * OUTPUT_LEN
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -78,7 +69,35 @@ if __name__ == '__main__':
         default='http',
         help='Protocol ("http"/"grpc") used to ' +
         'communicate with inference service. Default is "http".')
+    parser.add_argument('-r',
+                        '--random_start_ids',
+                        action="store_true",
+                        required=False,
+                        default=True,
+                        help='Enable random start ids')
+    parser.add_argument('-b',
+                        '--batch_size',
+                        type=int,
+                        default=8,
+                        required=False,
+                        help='Specify batch size')
 
+    parser.add_argument('-s',
+                        '--start_len',
+                        type=int,
+                        default=8,
+                        required=False,
+                        help='Specify input length')
+
+    parser.add_argument('-o',
+                        '--output_len',
+                        type=int,
+                        default=24,
+                        required=False,
+                        help='Specify output length')
+
+    
+    
     FLAGS = parser.parse_args()
     if (FLAGS.protocol != "http") and (FLAGS.protocol != "grpc"):
         print("unexpected protocol \"{}\", expects \"http\" or \"grpc\"".format(
@@ -89,6 +108,11 @@ if __name__ == '__main__':
 
     if FLAGS.url is None:
         FLAGS.url = "localhost:8000" if FLAGS.protocol == "http" else "localhost:8001"
+
+    if FLAGS.random_start_ids:
+        random_start_ids = np.random.randint(0, 50255, size=(FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
+    input_len = np.array([ [sentence.size] for sentence in random_start_ids ], np.uint32)
+    output_len = np.ones_like(input_len).astype(np.uint32) * FLAGS.output_len
 
     # Run async requests to make sure backend handles request batches
     # correctly. We use just HTTP for this since we are not testing the
@@ -165,7 +189,7 @@ if __name__ == '__main__':
                 print("get results\n")
 
                 output_data = results[i].as_numpy("OUTPUT0")
-                output_data = output_data.reshape([-1, BATCH_SIZE])
+                output_data = output_data.reshape([-1, FLAGS.batch_size])
                 np.savetxt("triton_out", output_data, fmt='%u')
                 output_data = output_data.T
                 print("get results as OUTPUT0\n")
