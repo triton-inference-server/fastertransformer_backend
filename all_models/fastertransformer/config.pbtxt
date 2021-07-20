@@ -26,8 +26,8 @@
 
 name: "fastertransformer"
 backend: "fastertransformer"
-default_model_filename: "gpt_89B"
-max_batch_size: 16
+default_model_filename: "gpt3-c-model-8gpu"
+max_batch_size: 128
 input [
   {
     name: "INPUT_ID"
@@ -80,19 +80,19 @@ parameters {
 parameters {
   key: "layer_para_size"
   value: {
-    string_value: "1"
+    string_value: "2"
   }
 }
 parameters {
   key: "layer_para_batch_size"
   value: {
-    string_value: "16"
+    string_value: "8"
   }
 }
 parameters {
   key: "max_seq_len"
   value: {
-    string_value: "544"
+    string_value: "32"
   }
 }
 parameters {
@@ -104,37 +104,37 @@ parameters {
 parameters {
   key: "head_num"
   value: {
-    string_value: "96"
+    string_value: "16"
   }
 }
 parameters {
   key: "size_per_head"
   value: {
-    string_value: "128"
+    string_value: "64"
   }
 }
 parameters {
   key: "vocab_size"
   value: {
-    string_value: "51200"
+    string_value: "50304"
   }
 }
 parameters {
   key: "decoder_layers"
   value: {
-    string_value: "48"
+    string_value: "24"
   }
 }
 parameters {
   key: "model_name"
   value: {
-    string_value: "gpt_89B"
+    string_value: "gpt_345M"
   }
 }
 parameters {
   key: "batch_size"
   value: {
-    string_value: "16"
+    string_value: "128"
   }
 }
 parameters {
