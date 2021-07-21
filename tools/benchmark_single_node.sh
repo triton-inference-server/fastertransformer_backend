@@ -29,7 +29,7 @@
 MODEL_FILENAME=gpt3_89B
 BATCH_SIZE=16
 INPUT_LEN=512
-OUTPUT_LEN=32
+OUTPUT_LEN=16
 SIZE_PER_HEAD=128
 HEAD_NUM=96
 MODEL_NAME="gpt3_89B"
@@ -83,11 +83,12 @@ while [ "$1" != "" ]; do
         -d | --num_decoder_layers)  shift
 				    NUM_DECODER_LAYERS=$1
 				    ;;
-	-n | --num_runs)            shift
+	      -n | --num_runs)            shift
 				    NUM_RUNS=$1
 				    ;;
         -h | --help )               shift
 				    usage
+            exit 1
 				    ;;
         * )                         usage
             exit 1
