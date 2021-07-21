@@ -32,7 +32,6 @@ INPUT_LEN=512
 OUTPUT_LEN=16
 SIZE_PER_HEAD=128
 HEAD_NUM=96
-MODEL_NAME="gpt3_89B"
 VOCAB_SIZE=51200
 NUM_DECODER_LAYERS=48
 NUM_RUNS=1
@@ -54,7 +53,9 @@ function usage
     echo "-o | --output_len"
     echo "-v | --vocab_size"
     echo "-d | --num_decoder_layers"
-    echo "-n | --num runs"
+    echo "-n | --num_runs"
+    echo "-h_n | --head_num"
+    echo "-s_h | --size_per_head"
     echo "-h | --help  This message"
 }
 
@@ -83,8 +84,14 @@ while [ "$1" != "" ]; do
         -d | --num_decoder_layers)  shift
 				    NUM_DECODER_LAYERS=$1
 				    ;;
-	      -n | --num_runs)            shift
+        -n | --num_runs)            shift
 				    NUM_RUNS=$1
+				    ;;
+        -h_n | --head_num)          shift
+				    HEAD_NUM=$1
+				    ;;
+        -s_h | --size_per_head)     shift
+				    SIZE_PER_HEAD=$1
 				    ;;
         -h | --help )               shift
 				    usage
@@ -96,18 +103,22 @@ while [ "$1" != "" ]; do
     shift
 done
 
+MODEL_NAME=$MODEL_FILENAME
+
 MAX_SEQ_LEN=$(( $INPUT_LEN + $OUTPUT_LEN ))
 
 if [ "$COMPILE" = true ] ; then
     # Build
+    set -e
     if [[ -f $WORKSPACE/fastertransformer_backend/build/CMakeCache.txt ]]; then
         rm $WORKSPACE/fastertransformer_backend/build/CMakeCache.txt
     fi
     
     (cd $WORKSPACE/fastertransformer_backend/build/ && \
         cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DSM=80 .. && \
-    make -j12)
-    
+        make -j12)
+    set +e
+
     cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so \
     $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so \
     /opt/tritonserver/backends/fastertransformer
@@ -116,12 +127,12 @@ fi
 
 
 RET=0
-rm -rf *.log
+#rm -rf *.log
 
 SERVER=/opt/tritonserver/bin/tritonserver
 MODEL_PATH=$WORKSPACE/fastertransformer_backend/all_models
 SERVER_ARGS="--model-repositor=$MODEL_PATH"
-SERVER_LOG="./inference_server.log"
+SERVER_LOG="./${MODEL_FILENAME}_inference_server.log"
 
 #update config.pbtxt
 (cd $MODEL_PATH/fastertransformer && \
@@ -277,10 +288,10 @@ wait_for_server_ready $SERVER_PID $SERVER_TIMEOUT
 
 
 CLIENT_PY=$WORKSPACE/fastertransformer_backend/tools/identity_test.py
-CLIENT_LOG="./client.log"
+CLIENT_LOG="./${MODEL_FILENAME}_client.log"
 
-rm -rf client.log err.log
-rm -rf triton_out
+#rm -rf client.log err.log
+#rm -rf triton_out
 
 for PROTOCOL in http; do
     set +e

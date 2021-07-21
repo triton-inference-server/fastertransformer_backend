@@ -279,7 +279,7 @@ ModelState::LoadModel(
     check_cuda_error(cudaMemGetInfo(&free_bytes, &total_bytes));
     float free = (float)(free_bytes) / 1024.0 / 1024.0 / 1024.0;
     float total = (float)(total_bytes) / 1024.0 / 1024.0 / 1024.0;
-    printf("before allocation, free %.2f GB total %.2f GB\n", free, total);
+    printf("node_id: %d, device_id: %d, before allocation, free %.2f GB total %.2f GB\n", node_id, device_id, free, total);
   }
 
   auto path = JoinPath({RepositoryPath(), std::to_string(Version()), cc_model_filename});
@@ -302,7 +302,8 @@ ModelState::LoadModel(
     check_cuda_error(cudaMemGetInfo(&free_bytes, &total_bytes));
     float free = (float)(free_bytes) / 1024.0 / 1024.0 / 1024.0;
     float total = (float)(total_bytes) / 1024.0 / 1024.0 / 1024.0;
-    printf("after allocation, free %.2f GB total %.2f GB\n", free, total);
+    printf("\n");
+    printf("node_id: %d, device_id: %d, after allocation, free %.2f GB total %.2f GB\n", node_id, device_id, free, total);
   }
   return nullptr;  // success
 }
