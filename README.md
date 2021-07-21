@@ -131,6 +131,20 @@ The model configuration for Triton server is put in `all_models/transformer/conf
 - batch_size: max supported batch size
 - is_fuse_QKV: fusing QKV in one matrix multiplication or not. It also depends on the weights of QKV.
 
+* Benchmark on single node
+
+Run this script with different batch size, input_len, output_len, num of runs on a single node with 8 gpus, it will start the server, then start the client to get the latency and stop the server at the end.
+
+```
+# run with batch_size = 8, input_len = 512, output_len = 16, and run 10 times to get the average latency
+bash $WORKSPACE/fastertransformer_backend/tools/benchmark_single_node.sh -b 8 -i 512 -o 16 -n 10
+
+```
+
+
+
+
+
 ## How to Run multi-node on the Cluster with Enroot/Pyxis support
 
 **Warp up everything in a docker**: as described in *Prepare the ft-triton-backend docker* step.

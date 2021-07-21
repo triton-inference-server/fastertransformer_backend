@@ -164,13 +164,13 @@ instance_group [
 parameters {
   key: "candidate_num"
   value: {
-    string_value: "1"
+    string_value: "0"
   }
 }
 parameters {
   key: "probability_threshold"
   value: {
-    string_value: "0.0"
+    string_value: "0.9"
   }
 }
 parameters {
@@ -292,7 +292,7 @@ for PROTOCOL in http; do
 done
 
 # latency will be logged to last line
-tail -n 1 $CLIENT_LOG
+tail -n 2 $CLIENT_LOG
 # kill server
 ps -ef | grep mpirun | grep triton | awk '{print $2}' | while read p; do kill -9 $p ; done
 
