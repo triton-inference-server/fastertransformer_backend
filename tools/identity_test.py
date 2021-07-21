@@ -201,7 +201,7 @@ if __name__ == '__main__':
         latencies.append((stop_time - start_time).total_seconds()
                          * 1000.0 / request_parallelism)
     if FLAGS.num_runs > 1:
-        print(f"[INFO] execution time var: {s.variance(latencies)}")
+        print(latencies)
         print(f"[INFO] execution time: {s.mean(latencies)} ms")
     else:
         print(f"[INFO] execution time: {latencies[0]} ms")

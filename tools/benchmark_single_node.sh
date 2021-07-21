@@ -35,6 +35,8 @@ HEAD_NUM=96
 MODEL_NAME="gpt3_89B"
 VOCAB_SIZE=51200
 NUM_DECODER_LAYERS=48
+NUM_RUNS=1
+SERVER_TIMEOUT=420
 LAYER_PARA_SIZE=1 # This script only support single node, so keep this to be 1
 source $WORKSPACE/common/util.sh
 
@@ -51,7 +53,8 @@ function usage
     echo "-i | --input_len"
     echo "-o | --output_len"
     echo "-v | --vocab_size"
-    echo "-n | --num_decoder_layers"
+    echo "-d | --num_decoder_layers"
+    echo "-n | --num runs"
     echo "-h | --help  This message"
 }
 
@@ -59,30 +62,34 @@ function usage
 while [ "$1" != "" ]; do
     case $1 in
         -m | --model_filename)      shift
-            MODEL_FILENAME=$1
-        ;;
+				    MODEL_FILENAME=$1
+				    ;;
         -b | --batch_size)          shift
-            BATCH_SIZE=$1
-        ;;
+				    BATCH_SIZE=$1
+				    ;;
         -c | --compile)             shift
-            COMPILE=true
-        ;;
+				    shift
+				    COMPILE=true
+				    ;;
         -i | --input_len)           shift
-            INPUT_LEN=$1
-        ;;
+				    INPUT_LEN=$1
+				    ;;
         -o | --output_len)          shift
-            OUTPUT_LEN=$1
-        ;;
+				    OUTPUT_LEN=$1
+				    ;;
         -v | --vocab_size)          shift
-            VOCAB_SIZE=$1
-        ;;
-        -n | --num_decoder_layers)  shift
-            NUM_DECODER_LAYERS=$1
-        ;;
-        -h | --help )       shift
-            usage
-        ;;
-        * )                 usage
+				    VOCAB_SIZE=$1
+				    ;;
+        -d | --num_decoder_layers)  shift
+				    NUM_DECODER_LAYERS=$1
+				    ;;
+	-n | --num_runs)            shift
+				    NUM_RUNS=$1
+				    ;;
+        -h | --help )               shift
+				    usage
+				    ;;
+        * )                         usage
             exit 1
     esac
     shift
@@ -276,7 +283,7 @@ rm -rf triton_out
 
 for PROTOCOL in http; do
     set +e
-    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -v 2> err.log > $CLIENT_LOG
+    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -n $NUM_RUNS -v 2> err.log > $CLIENT_LOG
     if [ $? -ne 0 ]; then
         RET=1
     fi
@@ -286,7 +293,7 @@ done
 # latency will be logged to last line
 tail -n 1 $CLIENT_LOG
 # kill server
-#ps -ef | grep mpirun | grep triton | awk '{print $2}' | while read p; do kill -9 $p ; done
+ps -ef | grep mpirun | grep triton | awk '{print $2}' | while read p; do kill -9 $p ; done
 
 echo "model_name = $MODEL_NAME, batch_size = $BATCH_SIZE, input_len = $INPUT_LEN, output_len = $OUTPUT_LEN, num_decoder_layers = $NUM_DECODER_LAYERS latency = $(tail -n 1 $CLIENT_LOG | grep -Eo '[+-]?[0-9]+([.][0-9]+)?') ms"
 
