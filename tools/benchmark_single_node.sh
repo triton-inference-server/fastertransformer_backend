@@ -29,15 +29,18 @@
 MODEL_FILENAME=gpt3_89B
 BATCH_SIZE=16
 INPUT_LEN=512
-OUTPUT_LEN=32
+OUTPUT_LEN=16
 SIZE_PER_HEAD=128
 HEAD_NUM=96
 MODEL_NAME="gpt3_89B"
 VOCAB_SIZE=51200
 NUM_DECODER_LAYERS=48
+NUM_RUNS=1
+SERVER_TIMEOUT=420
 LAYER_PARA_SIZE=1 # This script only support single node, so keep this to be 1
 source $WORKSPACE/common/util.sh
 
+set +x
 
 
 # TODO: Add TP para, now it only supports TP=8
@@ -50,7 +53,8 @@ function usage
     echo "-i | --input_len"
     echo "-o | --output_len"
     echo "-v | --vocab_size"
-    echo "-n | --num_decoder_layers"
+    echo "-d | --num_decoder_layers"
+    echo "-n | --num runs"
     echo "-h | --help  This message"
 }
 
@@ -60,29 +64,34 @@ while [ "$1" != "" ]; do
         -m | --model_filename)      shift
 				    MODEL_FILENAME=$1
 				    ;;
-	-b | --batch_size)          shift
+        -b | --batch_size)          shift
 				    BATCH_SIZE=$1
 				    ;;
-	-c | --compile)             shift
+        -c | --compile)             shift
+				    shift
 				    COMPILE=true
 				    ;;
-	-i | --input_len)           shift
+        -i | --input_len)           shift
 				    INPUT_LEN=$1
 				    ;;
-	-o | --output_len)          shift
+        -o | --output_len)          shift
 				    OUTPUT_LEN=$1
 				    ;;
-	-v | --vocab_size)          shift
+        -v | --vocab_size)          shift
 				    VOCAB_SIZE=$1
 				    ;;
-	-n | --num_decoder_layers)  shift
+        -d | --num_decoder_layers)  shift
 				    NUM_DECODER_LAYERS=$1
 				    ;;
-	-h | --help )       shift
-			    usage
-                            ;;
-        * )                 usage
-                            exit 1
+	      -n | --num_runs)            shift
+				    NUM_RUNS=$1
+				    ;;
+        -h | --help )               shift
+				    usage
+            exit 1
+				    ;;
+        * )                         usage
+            exit 1
     esac
     shift
 done
@@ -92,16 +101,16 @@ MAX_SEQ_LEN=$(( $INPUT_LEN + $OUTPUT_LEN ))
 if [ "$COMPILE" = true ] ; then
     # Build
     if [[ -f $WORKSPACE/fastertransformer_backend/build/CMakeCache.txt ]]; then
-	rm $WORKSPACE/fastertransformer_backend/build/CMakeCache.txt
+        rm $WORKSPACE/fastertransformer_backend/build/CMakeCache.txt
     fi
     
     (cd $WORKSPACE/fastertransformer_backend/build/ && \
-	 cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DSM=80 .. && \
-	 make -j12)
-
+        cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DSM=80 .. && \
+    make -j12)
+    
     cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so \
-       $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so \
-       /opt/tritonserver/backends/fastertransformer
+    $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so \
+    /opt/tritonserver/backends/fastertransformer
 fi
 
 
@@ -116,7 +125,7 @@ SERVER_LOG="./inference_server.log"
 
 #update config.pbtxt
 (cd $MODEL_PATH/fastertransformer && \
-     echo '
+    echo '
 name: "fastertransformer"
 backend: "fastertransformer"
 default_model_filename: "'"${MODEL_FILENAME}"'"
@@ -155,13 +164,13 @@ instance_group [
 parameters {
   key: "candidate_num"
   value: {
-    string_value: "1"
+    string_value: "0"
   }
 }
 parameters {
   key: "probability_threshold"
   value: {
-    string_value: "0.0"
+    string_value: "0.9"
   }
 }
 parameters {
@@ -275,16 +284,18 @@ rm -rf triton_out
 
 for PROTOCOL in http; do
     set +e
-    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -v 2> err.log > $CLIENT_LOG
+    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -n $NUM_RUNS -v 2> err.log > $CLIENT_LOG
     if [ $? -ne 0 ]; then
         RET=1
     fi
     set -e
 done
 
-# TODO: extract latency
-tail $CLIENT_LOG
+# latency will be logged to last line
+tail -n 2 $CLIENT_LOG
 # kill server
 ps -ef | grep mpirun | grep triton | awk '{print $2}' | while read p; do kill -9 $p ; done
+
+echo "model_name = $MODEL_NAME, batch_size = $BATCH_SIZE, input_len = $INPUT_LEN, output_len = $OUTPUT_LEN, num_decoder_layers = $NUM_DECODER_LAYERS latency = $(tail -n 1 $CLIENT_LOG | grep -Eo '[+-]?[0-9]+([.][0-9]+)?') ms"
 
 exit $RET

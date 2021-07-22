@@ -33,6 +33,7 @@ import re
 import sys
 import requests as httpreq
 from builtins import range
+import statistics as s
 import tritongrpcclient as grpcclient
 import tritonhttpclient as httpclient
 from tritonclientutils import np_to_triton_dtype
@@ -48,6 +49,56 @@ random_start_ids = np.array([[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
                              [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
                              [6601, 4237, 345, 460, 779, 284, 787, 257]], np.uint32)
 
+
+def send_requests(request_parallelism=10):
+    model_name = "fastertransformer"
+    with client_util.InferenceServerClient(FLAGS.url,
+                                           concurrency=request_parallelism,
+                                           verbose=FLAGS.verbose) as client:
+        requests = []
+        results = []
+        for i in range(request_parallelism):
+            input_data = random_start_ids
+            inputs = [
+                client_util.InferInput("INPUT_ID", input_data.shape,
+                                       np_to_triton_dtype(input_data.dtype)),
+                client_util.InferInput("REQUEST_INPUT_LEN", input_len.shape,
+                                       np_to_triton_dtype(input_len.dtype)),
+                client_util.InferInput("REQUEST_OUTPUT_LEN", output_len.shape,
+                                       np_to_triton_dtype(output_len.dtype))
+            ]
+            inputs[0].set_data_from_numpy(input_data)
+            inputs[1].set_data_from_numpy(input_len)
+            inputs[2].set_data_from_numpy(output_len)
+            #requests.append(client.async_infer(model_name, inputs))
+            print("set request")
+            result = client.infer(model_name, inputs)
+            print("get request")
+            results.append(result)
+
+        for i in range(request_parallelism):
+            # Get the result from the initiated asynchronous inference request.
+            # Note the call will block till the server responds.
+            print("wait result return 0000\n")
+            ##results = requests[i].get_result()
+            print("wait result return 1111\n")
+            # print(results[i])
+            print("get results\n")
+
+            output_data = results[i].as_numpy("OUTPUT0")
+            output_data = output_data.reshape([-1, FLAGS.batch_size])
+            np.savetxt("triton_out", output_data, fmt='%u')
+            output_data = output_data.T
+            print("get results as OUTPUT0\n")
+            if output_data is None:
+                print("error: expected 'OUTPUT0'")
+                sys.exit(1)
+            else:
+                print("OUTPUT0 is received")
+                print(output_data.shape)
+                print(output_data)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-v',
@@ -61,20 +112,26 @@ if __name__ == '__main__':
                         type=str,
                         required=False,
                         help='Inference server URL.')
-    parser.add_argument(
-        '-i',
-        '--protocol',
-        type=str,
-        required=False,
-        default='http',
-        help='Protocol ("http"/"grpc") used to ' +
-        'communicate with inference service. Default is "http".')
+    parser.add_argument('-i',
+                        '--protocol',
+                        type=str,
+                        required=False,
+                        default='http',
+                        help='Protocol ("http"/"grpc") used to ' +
+                        'communicate with inference service. Default is "http".')
     parser.add_argument('-r',
                         '--random_start_ids',
                         action="store_true",
                         required=False,
                         default=True,
                         help='Enable random start ids')
+    parser.add_argument('-w',
+                        '--warm_up',
+                        action="store_true",
+                        required=False,
+                        default=True,
+                        help='Enable warm_up before benchmark')
+
     parser.add_argument('-b',
                         '--batch_size',
                         type=int,
@@ -96,8 +153,14 @@ if __name__ == '__main__':
                         required=False,
                         help='Specify output length')
 
-    
-    
+    parser.add_argument('-n',
+                        '--num_runs',
+                        type=int,
+                        default=1,
+                        required=False,
+                        help="Spedifty number of runs to get the average latency"
+                        )
+
     FLAGS = parser.parse_args()
     if (FLAGS.protocol != "http") and (FLAGS.protocol != "grpc"):
         print("unexpected protocol \"{}\", expects \"http\" or \"grpc\"".format(
@@ -110,95 +173,35 @@ if __name__ == '__main__':
         FLAGS.url = "localhost:8000" if FLAGS.protocol == "http" else "localhost:8001"
 
     if FLAGS.random_start_ids:
-        random_start_ids = np.random.randint(0, 50255, size=(FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
-    input_len = np.array([ [sentence.size] for sentence in random_start_ids ], np.uint32)
+        random_start_ids = np.random.randint(0, 50255, size=(
+            FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
+
+    input_len = np.array([[sentence.size]
+                         for sentence in random_start_ids], np.uint32)
     output_len = np.ones_like(input_len).astype(np.uint32) * FLAGS.output_len
 
     # Run async requests to make sure backend handles request batches
     # correctly. We use just HTTP for this since we are not testing the
     # protocol anyway.
 
-    # warmup
-    if FLAGS.protocol == "http":
-        request_parallelism = 10
-        model_name = "fastertransformer"
-        # shape = [8, 8]
-        with client_util.InferenceServerClient(FLAGS.url,
-                                               concurrency=request_parallelism,
-                                               verbose=FLAGS.verbose) as client:
-            requests = []
-            results = []
-            for i in range(request_parallelism):
-                input_data = random_start_ids
-                inputs = [
-                    client_util.InferInput("INPUT_ID", input_data.shape,
-                                           np_to_triton_dtype(input_data.dtype)),
-                    client_util.InferInput("REQUEST_INPUT_LEN", input_len.shape,
-                                           np_to_triton_dtype(input_len.dtype)),
-                    client_util.InferInput("REQUEST_OUTPUT_LEN", output_len.shape,
-                                           np_to_triton_dtype(output_len.dtype))
-                ]
-                inputs[0].set_data_from_numpy(input_data)
-                inputs[1].set_data_from_numpy(input_len)
-                inputs[2].set_data_from_numpy(output_len)
-                result = client.infer(model_name, inputs)
-                results.append(result)
-
-            for i in range(request_parallelism):
-                # Get the result from the initiated asynchronous inference request.
-                # Note the call will block till the server responds.
-                output_data = results[i].as_numpy("OUTPUT0")
-
+    # warm up
+    if FLAGS.protocol == "http" and FLAGS.warm_up:
+        print("[INFO] sending requests to warm up")
+        send_requests(2)
+    import time
+    time.sleep(5)  # TODO: Not sure if this is necessary
     from datetime import datetime
     request_parallelism = 10
-    start_time = datetime.now()
-    if FLAGS.protocol == "http":
-        model_name = "fastertransformer"
-        # shape = [8, 8]
-        with client_util.InferenceServerClient(FLAGS.url,
-                                               concurrency=request_parallelism,
-                                               verbose=FLAGS.verbose) as client:
-            requests = []
-            results = []
-            for i in range(request_parallelism):
-                input_data = random_start_ids
-                inputs = [
-                    client_util.InferInput("INPUT_ID", input_data.shape,
-                                           np_to_triton_dtype(input_data.dtype)),
-                    client_util.InferInput("REQUEST_INPUT_LEN", input_len.shape,
-                                           np_to_triton_dtype(input_len.dtype)),
-                    client_util.InferInput("REQUEST_OUTPUT_LEN", output_len.shape,
-                                           np_to_triton_dtype(output_len.dtype))
-                ]
-                inputs[0].set_data_from_numpy(input_data)
-                inputs[1].set_data_from_numpy(input_len)
-                inputs[2].set_data_from_numpy(output_len)
-                #requests.append(client.async_infer(model_name, inputs))
-                print("set request")
-                result = client.infer(model_name, inputs)
-                print("get request")
-                results.append(result)
-
-            for i in range(request_parallelism):
-                # Get the result from the initiated asynchronous inference request.
-                # Note the call will block till the server responds.
-                print("wait result return 0000\n")
-                ##results = requests[i].get_result()
-                print("wait result return 1111\n")
-                # print(results[i])
-                print("get results\n")
-
-                output_data = results[i].as_numpy("OUTPUT0")
-                output_data = output_data.reshape([-1, FLAGS.batch_size])
-                np.savetxt("triton_out", output_data, fmt='%u')
-                output_data = output_data.T
-                print("get results as OUTPUT0\n")
-                if output_data is None:
-                    print("error: expected 'OUTPUT0'")
-                    sys.exit(1)
-                else:
-                    print("OUTPUT0 is received")
-                    print(output_data.shape)
-                    print(output_data)
-    stop_time = datetime.now()
-    print("[INFO] execution time: {} ms".format((stop_time - start_time).total_seconds() * 1000.0 / request_parallelism))
+    latencies = []
+    for i in range(FLAGS.num_runs):
+        start_time = datetime.now()
+        if FLAGS.protocol == "http":
+            send_requests(request_parallelism)
+        stop_time = datetime.now()
+        latencies.append((stop_time - start_time).total_seconds()
+                         * 1000.0 / request_parallelism)
+    if FLAGS.num_runs > 1:
+        print(latencies)
+        print(f"[INFO] execution time: {s.mean(latencies)} ms")
+    else:
+        print(f"[INFO] execution time: {latencies[0]} ms")
