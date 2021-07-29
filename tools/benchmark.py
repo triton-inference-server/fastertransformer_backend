@@ -32,6 +32,37 @@ import json
 import os
 import sys
 import subprocess
+import time
+from threading import Thread
+
+class GPUUtilTracker():
+    def __init__(self):
+        self.max_gpu_mem_usage = []
+        self.stop = False
+    
+    def get_results(self):
+        return self.max_gpu_mem_usage
+
+    def terminate(self):
+        self.stop = True
+
+    def run(self):
+        cmd = "nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits"
+        print(cmd)
+        while(True):
+            proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = proc.communicate()
+            print(out, err)
+            gpu_mem_usage = [float(n) for n in out.decode('utf-8').strip().split('\n')]
+            print(gpu_mem_usage)
+            if len(self.max_gpu_mem_usage) == 0:
+                self.max_gpu_mem_usage = gpu_mem_usage
+            else:
+                for i in range(len(self.max_gpu_mem_usage)):
+                    self.max_gpu_mem_usage[i] = gpu_mem_usage[i] if gpu_mem_usage[i] > self.max_gpu_mem_usage[i] else self.max_gpu_mem_usage[i]
+            if self.stop:
+                break
+            time.sleep(5)
 
 
 class Benchmark():
@@ -61,37 +92,39 @@ class Benchmark():
         print(out, err)
         latencies = ["{:.2f}".format(float(n)) for n in out.decode('utf-8').strip('\n').strip(']').strip('[').split(", ")]
        
-
-        #TODO: get mem usage
-        cmd = f"(cat {self.server_log} | grep 'before allocation' | sort | awk '{{print $8}}' )"
-        print(cmd)
-        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = proc.communicate()
-        print(out, err)
-        before_gpu_mem = [float(n) for n in out.decode('utf-8').strip().split('\n')]
+        # cmd = f"(cat {self.server_log} | grep 'after allocation' | sort | awk '{{print $8}}' )"
+        # print(cmd)
+        # proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # out, err = proc.communicate()
+        # print(out, err)
+        # free_gpu_mem = [float(n) for n in out.decode('utf-8').strip().split('\n')]
 
 
-        cmd = f"(cat {self.server_log} | grep 'after allocation' | sort | awk '{{print $8}}' )"
-        print(cmd)
-        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = proc.communicate()
-        print(out, err)
-        after_gpu_mem = [float(n) for n in out.decode('utf-8').strip().split('\n')]
-        assert len(after_gpu_mem) == len(before_gpu_mem)
-        print(before_gpu_mem)
-        print(after_gpu_mem)
-        gpu_mem_usage = ["{:.2f}".format(b - a) for b, a in zip(before_gpu_mem, after_gpu_mem)]
-        data_point = [batch_size] + latencies + [avg_latency] + gpu_mem_usage 
-        self.data_points.append(data_point)
-
+        # cmd = f"(cat {self.server_log} | grep 'after allocation' | sort | awk '{{print $11}}' )"
+        # print(cmd)
+        # proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # out, err = proc.communicate()
+        # print(out, err)
+        # total_gpu_mem = [float(n) for n in out.decode('utf-8').strip().split('\n')]
+        # assert len(free_gpu_mem) == len(total_gpu_mem)
+        # print(free_gpu_mem)
+        # print(total_gpu_mem)
+        # gpu_mem_usage = ["{:.2f}".format(b - a) for b, a in zip(total_gpu_mem, free_gpu_mem)]
+        return [batch_size] + latencies + [avg_latency]
 
     def call_once(self, batch_size):
-        #cmd = f"bash {os.getenv('WORKSPACE')}/fastertransformer_backend/tools/benchmark_single_node.sh -b {batch_size} -m {self.model_name} -i {self.input_len} -o {self.output_len} -d {self.num_decoder_layer} -h_n {self.num_header} -s_h {self.size_per_header} -v {self.vocab_size} -n {self.num_run}"
-        #print(cmd)
-        #proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        #out, err = proc.communicate()
-        self.parse_log(batch_size)
+        g_tracker = GPUUtilTracker()
+        t = Thread(target=g_tracker.run)
+        t.start()
+        cmd = f"bash {os.getenv('WORKSPACE')}/fastertransformer_backend/tools/benchmark_single_node.sh -b {batch_size} -m {self.model_name} -i {self.input_len} -o {self.output_len} -d {self.num_decoder_layer} -h_n {self.num_header} -s_h {self.size_per_header} -v {self.vocab_size} -n {self.num_run}"
+        print(cmd)
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = proc.communicate()
+        bs_latency = self.parse_log(batch_size)
         print(self.data_points)
+        g_tracker.terminate()
+        t.join()
+        self.data_points.append(bs_latency + g_tracker.get_results())
 
     def start(self):
         os.getenv('WORKSPACE')
@@ -108,9 +141,40 @@ class Benchmark():
             writer.writerows(self.data_points)  
 
 if __name__ == '__main__':
-    #b = Benchmark("8-gpu", 512, 32 , 10, 24, 32, 64, 64, 50304)
-    #b = Benchmark("3-gpu", 512, 32 , 10, 3, 32, 64, 2, 50304)
-    b = Benchmark("89B", 512, 32 , 10, 48, 96, 128, 64, 51200)
-
-    b.start()
+    
+    #b = Benchmark("125M", 512, 32, 10, num_decoder_layer=12, num_header=12, size_per_header=64, max_batch_size=64, vocab_size=51200)
+    #b.start()
     #b.to_csv()
+    #b = Benchmark("3-gpu", 512, 32 , 10, 3, 32, 64, 2, 50304)
+    
+    b = Benchmark("350M", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=64, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("760M", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=96, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("8-gpu", 512, 32 , 10, 24, 32, 64, 64, 50304) # 1.3B
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("2.7B", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=80, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("6.7B", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("13B", 512, 32, 10, num_decoder_layer=40, num_header=40, size_per_header=128, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("89B", 512, 32 , 10, 48, 96, 128, 64, 51200)
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("175B", 512, 32, 10, num_decoder_layer=96, num_header=96, size_per_header=128, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
