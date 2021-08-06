@@ -55,6 +55,8 @@ def send_requests(url, batch_size, input_start_ids, verbose, request_parallelism
                                            verbose=verbose) as client:
         requests = []
         results = []
+        print("####", batch_size)
+        print(input_start_ids.shape)
         for i in range(request_parallelism):
             input_data = input_start_ids
             inputs = [
@@ -171,9 +173,9 @@ if __name__ == '__main__':
         FLAGS.url = "localhost:8000" if FLAGS.protocol == "http" else "localhost:8001"
 
     input_start_ids = FIXED_START_IDS
-    
+
     if FLAGS.random_start_ids:
-        intput_start_ids = np.random.randint(0, 50255, size=(FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
+        input_start_ids = np.random.randint(0, 50255, size=(FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
 
     input_len = np.array([[sentence.size]
                          for sentence in input_start_ids], np.uint32)
