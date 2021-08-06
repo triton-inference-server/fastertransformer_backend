@@ -48,7 +48,7 @@ FIXED_START_IDS = np.array([[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
                             [6601, 4237, 345, 460, 779, 284, 787, 257]], np.uint32)
 
 
-def send_requests(url, batch_size, input_start_ids, verbose, request_parallelism=10):
+def send_requests(url, batch_size, input_start_ids, input_len, output_len, verbose, request_parallelism=10):
     model_name = "fastertransformer"
     with client_util.InferenceServerClient(url,
                                            concurrency=request_parallelism,
@@ -186,7 +186,7 @@ if __name__ == '__main__':
     # warm up
     if FLAGS.protocol == "http" and FLAGS.warm_up:
         print("[INFO] sending requests to warm up")
-        send_requests(FLAGS.url, FLAGS.batch_size, input_start_ids, FLAGS.verbose, request_parallelism=2)
+        send_requests(FLAGS.url, FLAGS.batch_size, input_start_ids, input_len, output_len, FLAGS.verbose, request_parallelism=2)
     import time
     time.sleep(5)  # TODO: Not sure if this is necessary
     from datetime import datetime
@@ -195,7 +195,7 @@ if __name__ == '__main__':
     for i in range(FLAGS.num_runs):
         start_time = datetime.now()
         if FLAGS.protocol == "http":
-            send_requests(FLAGS.url, FLAGS.batch_size, input_start_ids, FLAGS.verbose, request_parallelism)
+            send_requests(FLAGS.url, FLAGS.batch_size, input_start_ids, input_len, output_len, FLAGS.verbose, request_parallelism)
         stop_time = datetime.now()
         latencies.append((stop_time - start_time).total_seconds()
                          * 1000.0 / request_parallelism)
