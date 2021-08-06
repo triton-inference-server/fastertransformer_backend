@@ -295,7 +295,7 @@ CLIENT_LOG="./${MODEL_FILENAME}_client.log"
 
 for PROTOCOL in http; do
     set +e
-    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -n $NUM_RUNS -v 2> err.log > $CLIENT_LOG
+    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -n $NUM_RUNS -v -r 2> err.log > $CLIENT_LOG
     if [ $? -ne 0 ]; then
         RET=1
     fi

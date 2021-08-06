@@ -155,7 +155,7 @@ if __name__ == '__main__':
     b.start()
     b.to_csv()
 
-    b = Benchmark("8-gpu", 512, 32 , 10, 24, 32, 64, 64, 50304) # 1.3B
+    b = Benchmark("1.3B", 512, 32 , 10, 24, 32, 64, 64, 50304) # 1.3B
     b.start()
     b.to_csv()
 
@@ -176,5 +176,9 @@ if __name__ == '__main__':
     b.to_csv()
 
     b = Benchmark("175B", 512, 32, 10, num_decoder_layer=96, num_header=96, size_per_header=128, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
+
+    b = Benchmark("310B", 512, 32, 10, num_decoder_layer=96, num_header=128, size_per_header=128, max_batch_size=1, vocab_size=51200)
     b.start()
     b.to_csv()

@@ -38,27 +38,25 @@ import tritongrpcclient as grpcclient
 import tritonhttpclient as httpclient
 from tritonclientutils import np_to_triton_dtype
 
-FLAGS = None
-
-random_start_ids = np.array([[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
-                             [6601, 4237, 345, 460, 779, 284, 787, 257],
-                             [59, 77, 611, 7, 9248, 796, 657, 8],
-                             [38, 10128, 6032, 651, 8699, 4, 4048, 20753],
-                             [21448, 7006, 930, 12901, 930, 7406, 7006, 198],
-                             [13256, 11, 281, 1605, 3370, 11, 1444, 6771],
-                             [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
-                             [6601, 4237, 345, 460, 779, 284, 787, 257]], np.uint32)
+FIXED_START_IDS = np.array([[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
+                            [6601, 4237, 345, 460, 779, 284, 787, 257],
+                            [59, 77, 611, 7, 9248, 796, 657, 8],
+                            [38, 10128, 6032, 651, 8699, 4, 4048, 20753],
+                            [21448, 7006, 930, 12901, 930, 7406, 7006, 198],
+                            [13256, 11, 281, 1605, 3370, 11, 1444, 6771],
+                            [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
+                            [6601, 4237, 345, 460, 779, 284, 787, 257]], np.uint32)
 
 
-def send_requests(request_parallelism=10):
+def send_requests(url, batch_size, input_start_ids, verbose, request_parallelism=10):
     model_name = "fastertransformer"
-    with client_util.InferenceServerClient(FLAGS.url,
+    with client_util.InferenceServerClient(url,
                                            concurrency=request_parallelism,
-                                           verbose=FLAGS.verbose) as client:
+                                           verbose=verbose) as client:
         requests = []
         results = []
         for i in range(request_parallelism):
-            input_data = random_start_ids
+            input_data = input_start_ids
             inputs = [
                 client_util.InferInput("INPUT_ID", input_data.shape,
                                        np_to_triton_dtype(input_data.dtype)),
@@ -86,7 +84,7 @@ def send_requests(request_parallelism=10):
             print("get results\n")
 
             output_data = results[i].as_numpy("OUTPUT0")
-            output_data = output_data.reshape([-1, FLAGS.batch_size])
+            output_data = output_data.reshape([-1, batch_size])
             np.savetxt("triton_out", output_data, fmt='%u')
             output_data = output_data.T
             print("get results as OUTPUT0\n")
@@ -123,7 +121,7 @@ if __name__ == '__main__':
                         '--random_start_ids',
                         action="store_true",
                         required=False,
-                        default=True,
+                        default=False,
                         help='Enable random start ids')
     parser.add_argument('-w',
                         '--warm_up',
@@ -172,12 +170,13 @@ if __name__ == '__main__':
     if FLAGS.url is None:
         FLAGS.url = "localhost:8000" if FLAGS.protocol == "http" else "localhost:8001"
 
+    input_start_ids = FIXED_START_IDS
+    
     if FLAGS.random_start_ids:
-        random_start_ids = np.random.randint(0, 50255, size=(
-            FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
+        intput_start_ids = np.random.randint(0, 50255, size=(FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
 
     input_len = np.array([[sentence.size]
-                         for sentence in random_start_ids], np.uint32)
+                         for sentence in input_start_ids], np.uint32)
     output_len = np.ones_like(input_len).astype(np.uint32) * FLAGS.output_len
 
     # Run async requests to make sure backend handles request batches
@@ -187,7 +186,7 @@ if __name__ == '__main__':
     # warm up
     if FLAGS.protocol == "http" and FLAGS.warm_up:
         print("[INFO] sending requests to warm up")
-        send_requests(2)
+        send_requests(FLAGS.url, FLAGS.batch_size, input_start_ids, FLAGS.verbose, request_parallelism=2)
     import time
     time.sleep(5)  # TODO: Not sure if this is necessary
     from datetime import datetime
@@ -196,7 +195,7 @@ if __name__ == '__main__':
     for i in range(FLAGS.num_runs):
         start_time = datetime.now()
         if FLAGS.protocol == "http":
-            send_requests(request_parallelism)
+            send_requests(FLAGS.url, FLAGS.batch_size, input_start_ids, FLAGS.verbose, request_parallelism)
         stop_time = datetime.now()
         latencies.append((stop_time - start_time).total_seconds()
                          * 1000.0 / request_parallelism)
