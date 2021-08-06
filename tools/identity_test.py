@@ -55,8 +55,6 @@ def send_requests(url, batch_size, input_start_ids, verbose, request_parallelism
                                            verbose=verbose) as client:
         requests = []
         results = []
-        print("####", batch_size)
-        print(input_start_ids.shape)
         for i in range(request_parallelism):
             input_data = input_start_ids
             inputs = [
