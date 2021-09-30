@@ -1,4 +1,4 @@
-
+echo '
 # Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -13,7 +13,7 @@
 #    contributors may be used to endorse or promote products derived
 #    from this software without specific prior written permission.
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS AND ANY
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
 # EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 # IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
 # PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
@@ -27,7 +27,7 @@
 
 name: "fastertransformer"
 backend: "fastertransformer"
-default_model_filename: "gpt3_345M"
+default_model_filename: "gpt-j-6b"
 max_batch_size: 128
 input [
   {
@@ -110,19 +110,25 @@ parameters {
 parameters {
   key: "size_per_head"
   value: {
-    string_value: "64"
+    string_value: "256"
   }
 }
 parameters {
   key: "inter_size"
   value: {
-    string_value: "4096"
+    string_value: "16384"
+  }
+}
+parameters {
+  key: "rotary_embedding"
+  value: {
+    string_value: "64"
   }
 }
 parameters {
   key: "vocab_size"
   value: {
-    string_value: "50304"
+    string_value: "50400"
   }
 }
 parameters {
@@ -140,13 +146,13 @@ parameters {
 parameters {
   key: "decoder_layers"
   value: {
-    string_value: "24"
+    string_value: "28"
   }
 }
 parameters {
   key: "model_name"
   value: {
-    string_value: "gpt3_345M"
+    string_value: "gpt-j-6b"
   }
 }
 parameters {
@@ -186,7 +192,7 @@ dynamic_batching {
 parameters {
   key: "model_type"
   value: {
-    string_value: "GPT"
+    string_value: "GPT-J"
   }
 }
-
+' >> config.pbtxt

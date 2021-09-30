@@ -27,12 +27,14 @@
 #include <stdint.h>
 #include <exception>
 #include <string>
+#include <thread>
+#include <vector>
 
 #pragma GCC diagnostic push
 //#pragma GCC diagnostic ignored "-Wsign-compare"
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #pragma warning(push, 0)
-#include "fastertransformer/gpt.h"
+// #include "fastertransformer/gpt.h"
 #pragma warning(pop)
 #pragma GCC diagnostic pop
 
@@ -44,15 +46,20 @@
 #include "triton/backend/backend_output_responder.h"
 #include "triton/core/tritonbackend.h"
 
-#include "fastertransformer/triton_backend/transformer.hpp"
-#include "fastertransformer/triton_backend/gpt_triton_backend.hpp"
-#include <thread>
+#include "src/fastertransformer/triton_backend/transformer_triton_backend.hpp"
+#include "src/fastertransformer/triton_backend/multi_gpu_gpt/ParallelGptTritonModelInstance.h"
+#include "src/fastertransformer/triton_backend/multi_gpu_gpt/ParallelGptTritonModel.h"
+#include "src/fastertransformer/triton_backend/gptj/GptJTritonModelInstance.h"
+#include "src/fastertransformer/triton_backend/gptj/GptJTritonModel.h"
+#include "src/fastertransformer/utils/mpi_utils.h"
 
 //
 // PyTorch C++ (LibTorch) Backend that implements the TRITONBACKEND API.
 //
 
-namespace triton { namespace backend { namespace pytorch {
+namespace ft = fastertransformer;
+
+namespace triton { namespace backend { namespace fastertransformer_backend {
 
 #define RESPOND_ALL_AND_RETURN_IF_ERROR(RESPONSES, RESPONSES_COUNT, X) \
   do {                                                                 \
@@ -93,11 +100,10 @@ class ModelState : public BackendModel {
  private:
   ModelState(TRITONBACKEND_Model* triton_model);
   TRITONSERVER_Error* AutoCompleteConfig();
-  std::shared_ptr<AbstractTransformerModel> ftModel;
+  std::shared_ptr<AbstractTransformerModel> ft_model;
   int node_id, gpu_size, world_size;
-  ncclComm_t tensor_nccl_comms[8];
-  ncclComm_t layer_nccl_comms[8];
-  cudaStream_t streams_[8];
+  std::pair<std::vector<ncclComm_t>, std::vector<ncclComm_t>> nccl_comms_;
+  std::vector<cudaStream_t> streams_;
   std::vector<ncclUniqueId> nccl_ids;
 };
 
@@ -138,6 +144,8 @@ ModelState::Create(TRITONBACKEND_Model* triton_model, ModelState** state)
 ModelState::ModelState(TRITONBACKEND_Model* triton_model)
     : BackendModel(triton_model)
 {
+  int num_nodes;
+  MPICHECK( MPI_Comm_size(MPI_COMM_WORLD, &num_nodes));
   MPICHECK( MPI_Comm_rank(MPI_COMM_WORLD, &node_id));
 
   triton::common::TritonJson::WriteBuffer buffer;
@@ -176,56 +184,130 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
     return ret;
   };
 
-  auto modelVersionPath = JoinPath({RepositoryPath(), std::to_string(Version()), "/"});
+  int64_t max_batch_size = 0;
+  model_config_.MemberAsInt("max_batch_size", &max_batch_size);
 
-  if (param_get_int("is_half"))
-    ftModel.reset(new GptModel<fastertransformer::OperationType::FP16>
-                  (param_get_int("batch_size"),
-                   param_get_int("candidate_num"),
-                   param_get_int("head_num"),
-                   param_get_int("size_per_head"),
-                   param_get_int("vocab_size"),
-                   param_get_int("max_seq_len"),
-                   param_get_int("decoder_layers"),
-                   param_get_int("tensor_para_size"),
-                   param_get_int("layer_para_size"),
-                   param_get_int("layer_para_batch_size"),
-                   param_get_float("probability_threshold"),
-                   param_get_int("is_fuse_QKV"),
-                   param_get_int("temperature"),
-                   param_get_float("repetition_penalty"),
-                   param_get("model_name"),
-                   modelVersionPath));
-  else
-    ftModel.reset(new GptModel<fastertransformer::OperationType::FP32>
-                  (param_get_int("batch_size"),
-                   param_get_int("candidate_num"),
-                   param_get_int("head_num"),
-                   param_get_int("size_per_head"),
-                   param_get_int("vocab_size"),
-                   param_get_int("max_seq_len"),
-                   param_get_int("decoder_layers"),
-                   param_get_int("tensor_para_size"),
-                   param_get_int("layer_para_size"),
-                   param_get_int("layer_para_batch_size"),
-                   param_get_float("probability_threshold"),
-                   param_get_int("is_fuse_QKV"),
-                   param_get_int("temperature"),
-                   param_get_float("repetition_penalty"),
-                   param_get("model_name"),
-                   modelVersionPath));
+  std::string model_filename;
+  model_config_.MemberAsString("default_model_filename", &model_filename);
 
+  model_filename = model_filename == "" ? std::to_string(param_get_int("tensor_para_size")) + "-gpu" : model_filename;
 
-  int tensor_para_size = ftModel->get_tensor_para_size();
-  int layer_para_size = ftModel->get_layer_para_size();
-  world_size = tensor_para_size * layer_para_size;
-  
-  
-  CUDACHECK(cudaGetDeviceCount(&gpu_size));
+  std::string model_version_path = param_get("model_checkpoint_path") == "" ? 
+                                 JoinPath({RepositoryPath(), std::to_string(Version()),model_filename}) : 
+                                 param_get("model_checkpoint_path");
 
-  assert(tensor_para_size <= gpu_size);
+  std::string model_type = param_get("model_type") == "" ?
+                           "GPT" : param_get("model_type");
+                         
+  if (model_type == "GPT") {
+    if (param_get_int("is_half"))
+      ft_model.reset(new ParallelGptTritonModel<half>
+                    (max_batch_size,
+                    param_get_int("max_seq_len"),
+                    param_get_int("max_input_len"),
+                    param_get_int("beam_width"),
+                    param_get_int("head_num"),
+                    param_get_int("size_per_head"),
+                    param_get_int("inter_size"),
+                    param_get_int("decoder_layers"),
+                    param_get_int("vocab_size"),
+                    param_get_int("start_id"),
+                    param_get_int("end_id"),
+                    param_get_float("beam_search_diversity_rate"),
+                    param_get_int("top_k"),
+                    param_get_float("top_p"),
+                    param_get_float("temperature"),
+                    param_get_float("len_penalty"),
+                    param_get_float("repetition_penalty"),
+                    param_get_int("tensor_para_size"),
+                    param_get_int("pipeline_para_size"),
+                    param_get("model_name"),
+                    model_version_path));
+    else
+      ft_model.reset(new ParallelGptTritonModel<float>
+                    (max_batch_size,
+                    param_get_int("max_seq_len"),
+                    param_get_int("max_input_len"),
+                    param_get_int("beam_width"),
+                    param_get_int("head_num"),
+                    param_get_int("size_per_head"),
+                    param_get_int("inter_size"),
+                    param_get_int("decoder_layers"),
+                    param_get_int("vocab_size"),
+                    param_get_int("start_id"),
+                    param_get_int("end_id"),
+                    param_get_float("beam_search_diversity_rate"),
+                    param_get_int("top_k"),
+                    param_get_float("top_p"),
+                    param_get_float("temperature"),
+                    param_get_float("len_penalty"),
+                    param_get_float("repetition_penalty"),
+                    param_get_int("tensor_para_size"),
+                    param_get_int("pipeline_para_size"),
+                    param_get("model_name"),
+                    model_version_path));
+  }
+  else if (model_type == "GPT-J") {
+    if (param_get_int("is_half"))
+      ft_model.reset(new GptJTritonModel<half>
+                    (max_batch_size,
+                    param_get_int("max_seq_len"),
+                    param_get_int("max_input_len"),
+                    param_get_int("beam_width"),
+                    param_get_int("head_num"),
+                    param_get_int("size_per_head"),
+                    param_get_int("inter_size"),
+                    param_get_int("decoder_layers"),
+                    param_get_int("vocab_size"),
+                    param_get_int("rotary_embedding"),
+                    param_get_int("start_id"),
+                    param_get_int("end_id"),
+                    param_get_float("beam_search_diversity_rate"),
+                    param_get_int("top_k"),
+                    param_get_float("top_p"),
+                    param_get_float("temperature"),
+                    param_get_float("len_penalty"),
+                    param_get_float("repetition_penalty"),
+                    param_get_int("tensor_para_size"),
+                    param_get_int("pipeline_para_size"),
+                    param_get("model_name"),
+                    model_version_path));
+    else
+      ft_model.reset(new GptJTritonModel<float>
+                    (max_batch_size,
+                    param_get_int("max_seq_len"),
+                    param_get_int("max_input_len"),
+                    param_get_int("beam_width"),
+                    param_get_int("head_num"),
+                    param_get_int("size_per_head"),
+                    param_get_int("inter_size"),
+                    param_get_int("decoder_layers"),
+                    param_get_int("vocab_size"),
+                    param_get_int("rotary_embedding"),
+                    param_get_int("start_id"),
+                    param_get_int("end_id"),
+                    param_get_float("beam_search_diversity_rate"),
+                    param_get_int("top_k"),
+                    param_get_float("top_p"),
+                    param_get_float("temperature"),
+                    param_get_float("len_penalty"),
+                    param_get_float("repetition_penalty"),
+                    param_get_int("tensor_para_size"),
+                    param_get_int("pipeline_para_size"),
+                    param_get("model_name"),
+                    model_version_path));
+  }
+  gpu_size = fastertransformer::getDeviceCount();
+  streams_.resize(gpu_size);
 
-  if (node_id == 0) nccl_ids = ftModel->create_nccl_ids(world_size);
+  int tensor_para_size = ft_model->getTensorParaSize();
+  int pipeline_para_size = ft_model->getPipelineParaSize();
+  world_size = tensor_para_size * pipeline_para_size;
+  fastertransformer::FT_CHECK(world_size == gpu_size * num_nodes);
+  fastertransformer::FT_CHECK(tensor_para_size <= gpu_size);
+  if (node_id == 0) {
+    nccl_ids = ft_model->createNcclIds(world_size);
+  }
 
   int nccl_size = nccl_ids.size();
   MPICHECK(MPI_Bcast(&nccl_size, 1, MPI_INT, 0, MPI_COMM_WORLD));
@@ -234,26 +316,10 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
   {
       MPICHECK( MPI_Bcast(&nccl_ids[i], sizeof(nccl_ids[i]), MPI_BYTE, 0, MPI_COMM_WORLD));
   }
-
-  NCCLCHECK(ncclGroupStart());
-  for (int gid = 0; gid < gpu_size; gid ++) {
-
-    LOG_MESSAGE(TRITONSERVER_LOG_ERROR,
-                (std::string("enter nccl group") + std::to_string(gid)).c_str());
-    int rank = node_id * gpu_size + gid;
-    size_t tensor_para_rank = rank % tensor_para_size;
-    size_t layer_para_rank = rank / tensor_para_size;
-    ncclUniqueId tensor_para_nccl_uid = nccl_ids[layer_para_rank];
-    ncclUniqueId layer_para_nccl_uid  = nccl_ids[layer_para_size + tensor_para_rank];
-
-    CUDACHECK(cudaSetDevice(gid));
-    NCCLCHECK( ncclCommInitRank(&tensor_nccl_comms[gid], tensor_para_size, tensor_para_nccl_uid, tensor_para_rank));
-    NCCLCHECK( ncclCommInitRank(&layer_nccl_comms[gid], layer_para_size, layer_para_nccl_uid, layer_para_rank));
-  }
-  NCCLCHECK(ncclGroupEnd());
-
   LOG_MESSAGE(TRITONSERVER_LOG_ERROR,
-              (std::string("Model is loaded as'") + ftModel->to_string()).c_str());
+              (std::string("Model is loaded as'") + ft_model->toString()).c_str());
+
+  nccl_comms_ = ft_model->createNcclComms(nccl_ids, node_id);
 }
 
 TRITONSERVER_Error*
@@ -268,43 +334,24 @@ ModelState::LoadModel(
   // Find the TorchScript file that describes the model. If the model
   // configuration doesn't have an explicit model file specified then
   // use the default name ("model.pt").
-  CUDACHECK(cudaSetDevice(device_id));
+  fastertransformer::check_cuda_error(cudaSetDevice(device_id));
   std::string cc_model_filename = artifact_name;
   if (cc_model_filename.empty()) {
     cc_model_filename = "gpt3-model";
   }
 
-  {
-    size_t free_bytes, total_bytes;
-    check_cuda_error(cudaMemGetInfo(&free_bytes, &total_bytes));
-    float free = (float)(free_bytes) / 1024.0 / 1024.0 / 1024.0;
-    float total = (float)(total_bytes) / 1024.0 / 1024.0 / 1024.0;
-    printf("node_id: %d, device_id: %d, before allocation, free %.2f GB total %.2f GB\n", node_id, device_id, free, total);
-  }
-
-  auto path = JoinPath({RepositoryPath(), std::to_string(Version()), cc_model_filename});
-
-  LOG_MESSAGE(TRITONSERVER_LOG_WARN,
-              (std::string("Model path ") + path).c_str());
+  if (!node_id && !device_id) printf("Before Loading Model: \n");
+  ft::print_mem_usage();
 
   cudaStreamCreate(&streams_[device_id]);
-  auto modelInstance = ftModel->createModelInstance(node_id, device_id, world_size, streams_[device_id]);
-  auto param_instance = ftModel->createParamInstance(node_id, device_id, world_size, streams_[device_id], nccl_ids);
-  param_instance->init_nccl_from_comms(tensor_nccl_comms[device_id], layer_nccl_comms[device_id]);
-  modelInstance->set_param(param_instance.get());
-  ft_model_instance->reset(modelInstance.release());
+  const int rank = node_id * GetGpuSize() + device_id;
+  fastertransformer::sync_check_cuda_error();
+  auto model_instance = ft_model->createModelInstance(device_id, rank, streams_[device_id], nccl_comms_);
+  ft_model_instance->reset(model_instance.release());
 
-  *model_path = JoinPath(
-      {RepositoryPath(), std::to_string(Version()), cc_model_filename});
+  if (!node_id && !device_id) printf("After Loading Model: \n");
+  ft::print_mem_usage();
 
-  {
-    size_t free_bytes, total_bytes;
-    check_cuda_error(cudaMemGetInfo(&free_bytes, &total_bytes));
-    float free = (float)(free_bytes) / 1024.0 / 1024.0 / 1024.0;
-    float total = (float)(total_bytes) / 1024.0 / 1024.0 / 1024.0;
-    printf("\n");
-    printf("node_id: %d, device_id: %d, after allocation, free %.2f GB total %.2f GB\n", node_id, device_id, free, total);
-  }
   return nullptr;  // success
 }
 
@@ -375,7 +422,7 @@ class ModelInstanceState : public BackendModelInstance {
   std::string model_path_;
 
 
-  std::unique_ptr<AbstractTransformerModelInstance> ft_model_instance_[8];
+  std::vector<std::unique_ptr<AbstractTransformerModelInstance>> ft_model_instance_;
 
   // Map from configuration name for an input to the index of
   // that input in the model.
@@ -438,7 +485,7 @@ ModelInstanceState::ModelInstanceState(
   THROW_IF_BACKEND_INSTANCE_ERROR(ValidateInputs());
   THROW_IF_BACKEND_INSTANCE_ERROR(ValidateOutputs());
 
-
+  ft_model_instance_.resize(model_state->GetGpuSize());
   std::vector<std::thread> threads;
   int gpu_size = model_state->GetGpuSize();
 
@@ -754,10 +801,9 @@ int ThreadForward(std::unique_ptr<AbstractTransformerModelInstance> *ft_model_in
                   std::shared_ptr<std::vector<Tensor>> *output_tensors,
                   const int device_id)
 {
-  CUDACHECK(cudaSetDevice(device_id));
+  fastertransformer::check_cuda_error(cudaSetDevice(device_id));
   LOG_MESSAGE(TRITONSERVER_LOG_WARN,
               (std::string("Start to forward")).c_str());
-  // output_tensors = ft_model_instance->forward(input_tensors);
   *output_tensors = (*ft_model_instance)->forward(*input_tensors);
   LOG_MESSAGE(TRITONSERVER_LOG_WARN,
               (std::string("Stop to forward")).c_str());
@@ -777,8 +823,8 @@ void triton_check_inputs(std::shared_ptr<std::vector<Tensor>> output_tensors, co
   auto file = std::ofstream(fName, std::ios::out);
   if(!file.is_open())  {
   } else {
-    for(int i=0; i<batch_size; i++) {
-      for(int j=0; j<length; j++) {
+    for(size_t i = 0; i < batch_size; i++) {
+      for(size_t j = 0; j < length; j++) {
         file << ((uint32_t*)output.data)[i*length + j] << " ";
       }
       file << std::endl;
@@ -798,16 +844,22 @@ void BroadcastInputTensors(std::shared_ptr<std::vector<Tensor>>* input_tensors)
   {
     for (uint32_t i = 0; i < input_count; ++i)
     {
-      std::vector<int64_t> batchn_shape;
-      int64_t batch_size, length;
+      std::vector<size_t> batchn_shape;
+      int64_t batch_size = 1, beam_width = 1, length = 1;
       MPICHECK(MPI_Bcast(&(batch_size), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
-      MPICHECK(MPI_Bcast(&(length), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
+      if (i == 0) 
+      {
+        MPICHECK(MPI_Bcast(&(beam_width), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
+        MPICHECK(MPI_Bcast(&(length), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
+      }
       batchn_shape.push_back(batch_size);
+      if (i == 0) batchn_shape.push_back(beam_width);
       batchn_shape.push_back(length);
 
-      uint32_t* input_buffer = new uint32_t[batchn_shape[0] * batchn_shape[1]];
+      uint32_t buffer_size = batch_size * beam_width * length;
+      uint32_t* input_buffer = new uint32_t[buffer_size];
 
-      MPICHECK(MPI_Bcast(input_buffer, batchn_shape[0] * batchn_shape[1], MPI_UINT32_T, 0, MPI_COMM_WORLD));
+      MPICHECK(MPI_Bcast(input_buffer, buffer_size, MPI_UINT32_T, 0, MPI_COMM_WORLD));
 
       (*input_tensors)->push_back(Tensor{TRITONSERVER_MEMORY_CPU, TYPE_UINT32, batchn_shape, input_buffer});
     }
@@ -816,14 +868,18 @@ void BroadcastInputTensors(std::shared_ptr<std::vector<Tensor>>* input_tensors)
   {
     for (uint32_t i = 0; i < input_count; ++i)
     {
-      auto batch_size = (*input_tensors)->at(i).shape[0];
-      auto length = (*input_tensors)->at(i).shape[1];
-
+      int64_t batch_size = 1, beam_width = 1, length = 1;
+      batch_size = (*input_tensors)->at(i).shape[0];
+      beam_width = (*input_tensors)->at(i).shape.size() == 3 ? (*input_tensors)->at(i).shape[1]:1;
+      length =  (*input_tensors)->at(i).shape.size() == 3 ? (*input_tensors)->at(i).shape[2]:(*input_tensors)->at(i).shape[1];
       MPICHECK(MPI_Bcast(&(batch_size), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
-
-      MPICHECK(MPI_Bcast(&(length), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
-
-      MPICHECK(MPI_Bcast((*input_tensors)->at(i).data, batch_size * length, MPI_UINT32_T, 0, MPI_COMM_WORLD));
+      if (i == 0)
+      {
+        MPICHECK(MPI_Bcast(&(beam_width), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
+        MPICHECK(MPI_Bcast(&(length), 1, MPI_INT64_T, 0, MPI_COMM_WORLD));
+      } 
+      // TODO(bhsueh) modify the type of data to prevet the const_cast
+      MPICHECK(MPI_Bcast(const_cast<void*>((*input_tensors)->at(i).data), batch_size * beam_width * length, MPI_UINT32_T, 0, MPI_COMM_WORLD));
 
     }
   }
@@ -842,13 +898,15 @@ ModelInstanceState::Execute(
     MPICHECK( MPI_Comm_rank(MPI_COMM_WORLD, &node_id));
     MPICHECK( MPI_Comm_size(MPI_COMM_WORLD, &num_nodes));
 
-    if (node_id == 0) {check_inputs(input_tensors);triton_check_inputs(input_tensors, "triton_in");}
+    if (node_id == 0) {
+      // check_inputs(input_tensors);
+      triton_check_inputs(input_tensors, "triton_in");
+    }
     if (node_id) input_tensors = std::make_shared<std::vector<Tensor>>();
 
     MPI_Barrier(MPI_COMM_WORLD);
 
     BroadcastInputTensors(&input_tensors);
-    
     std::vector<std::thread> threads;
     std::shared_ptr<std::vector<Tensor>> output_tensors_list[gpu_size];
     for(int gid = 0; gid < gpu_size; gid ++)
@@ -863,7 +921,7 @@ ModelInstanceState::Execute(
     }
 
     auto output_tensors = output_tensors_list[0];
-    check_outputs(output_tensors);
+    // check_outputs(output_tensors);
     return output_tensors;
   }
   catch (std::exception& ex) {
@@ -882,7 +940,7 @@ ModelInstanceState::SetInputTensors(
     const uint32_t request_count,
     std::vector<TRITONBACKEND_Response*>* responses,
     BackendInputCollector* collector, std::vector<const char*>* input_names,
-    std::shared_ptr<std::vector<Tensor>>* input_tensors,
+    std::shared_ptr<std::vector<triton::Tensor>>* input_tensors,
     std::vector<BackendMemory*>* input_memories, bool* cuda_copy)
 {
   const int max_batch_size = model_state_->MaxBatchSize();
@@ -925,6 +983,12 @@ ModelInstanceState::SetInputTensors(
       batchn_shape[0] = total_batch_size;
     }
 
+    std::vector<size_t> batchn_shape_2(
+        input_shape, input_shape + input_dims_count);
+    if (max_batch_size != 0) {
+      batchn_shape_2[0] = total_batch_size;
+    }
+
     // The input must be in contiguous CPU/GPU memory.
     const int64_t batchn_byte_size = GetByteSize(input_datatype, batchn_shape);
 
@@ -958,7 +1022,7 @@ ModelInstanceState::SetInputTensors(
     LOG_MESSAGE(TRITONSERVER_LOG_WARN,
                 (std::string("collect name: ") + input_name +
                  " size: " + std::to_string(batchn_byte_size)).c_str());
-    (*input_tensors)->push_back(Tensor{TRITONSERVER_MEMORY_CPU, input_datatype, batchn_shape, input_buffer});
+    (*input_tensors)->push_back(triton::Tensor{TRITONSERVER_MEMORY_CPU, input_datatype, batchn_shape_2, input_buffer});
   }
 
   LOG_MESSAGE(TRITONSERVER_LOG_WARN,
@@ -997,18 +1061,23 @@ ModelInstanceState::ReadOutputTensors(
 
 
     // Verify output datatype matches datatype from model config
-    TRITONSERVER_DataType output_dtype = output.type;
+    TRITONSERVER_DataType output_dtype = TYPE_UINT32; // TODO (bhsueh) should use output.shape
     TRITONSERVER_DataType config_datatype = TRITONSERVER_TYPE_UINT32;
     LOG_MESSAGE(TRITONSERVER_LOG_WARN,
-                (std::string("get output_type: ") + TRITONSERVER_DataTypeString(output.type) + ", " + TRITONSERVER_DataTypeString(config_datatype) ).c_str());
+                (std::string("get output_type: ") + TRITONSERVER_DataTypeString(TYPE_UINT32) + ", " + TRITONSERVER_DataTypeString(config_datatype) ).c_str());
 
     const char* output_buffer = static_cast<const char*>(output.data);
 
     //  Set output shape
-    std::vector<int64_t> batchn_shape(output.shape);
+    std::vector<int64_t> batchn_shape;
+    std::string batch_shape_str = "output shape: [";
+    for(auto t: output.shape){
+      batchn_shape.push_back(int64_t(t));
+      batch_shape_str += std::to_string(t) + " ";
+    }
+    batch_shape_str += "]";
 
-    LOG_MESSAGE(TRITONSERVER_LOG_WARN,
-                (std::string("output shape: [") + std::to_string(batchn_shape[0]) + ", " + std::to_string(batchn_shape[1]) + "]").c_str());
+    LOG_MESSAGE(TRITONSERVER_LOG_WARN, batch_shape_str.c_str());
 
     responder.ProcessTensor(
         name, output_dtype, batchn_shape, output_buffer,
@@ -1038,7 +1107,7 @@ TRITONSERVER_Error*
 TRITONBACKEND_Initialize(TRITONBACKEND_Backend* backend)
 {
   int provided;
-  MPI_Init_thread( NULL, NULL, MPI_THREAD_MULTIPLE, &provided); 
+  MPICHECK(MPI_Init_thread( NULL, NULL, MPI_THREAD_MULTIPLE, &provided)); 
   const char* cname;
   RETURN_IF_ERROR(TRITONBACKEND_BackendName(backend, &cname));
   std::string name(cname);
@@ -1122,7 +1191,7 @@ TRITONBACKEND_ModelFinalize(TRITONBACKEND_Model* model)
   LOG_MESSAGE(
       TRITONSERVER_LOG_INFO, "TRITONBACKEND_ModelFinalize: MPI Finalize");
 
-  MPI_Finalize();
+  MPICHECK(MPI_Finalize());
 
   return nullptr;  // success
 }
@@ -1233,4 +1302,4 @@ TRITONBACKEND_ModelInstanceExecute(
 
 }  // extern "C"
 
-}}}  // namespace triton::backend::pytorch
+}}}  // namespace triton::backend::fastertransformer_backend

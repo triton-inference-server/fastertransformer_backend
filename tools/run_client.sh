@@ -37,7 +37,7 @@ RET=0
 
 for PROTOCOL in http; do
     set +e
-    python $CLIENT_PY -i $PROTOCOL -v 2> err.log > $CLIENT_LOG
+    python3 $CLIENT_PY -i $PROTOCOL -v 2> err.log > $CLIENT_LOG
     if [ $? -ne 0 ]; then
         RET=1
     fi

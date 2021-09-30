@@ -34,19 +34,31 @@ import sys
 import requests as httpreq
 from builtins import range
 import statistics as s
-import tritongrpcclient as grpcclient
-import tritonhttpclient as httpclient
-from tritonclientutils import np_to_triton_dtype
+import tritonclient.grpc as grpcclient
+import tritonclient.http as httpclient
+from tritonclient.utils import np_to_triton_dtype
 
-FIXED_START_IDS = np.array([[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
-                            [6601, 4237, 345, 460, 779, 284, 787, 257],
-                            [59, 77, 611, 7, 9248, 796, 657, 8],
-                            [38, 10128, 6032, 651, 8699, 4, 4048, 20753],
-                            [21448, 7006, 930, 12901, 930, 7406, 7006, 198],
-                            [13256, 11, 281, 1605, 3370, 11, 1444, 6771],
-                            [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
-                            [6601, 4237, 345, 460, 779, 284, 787, 257]], np.uint32)
+FIXED_START_IDS = np.array([
+    [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
+    [6601, 4237, 345, 460, 779, 284, 787, 257],
+    [59, 77, 611, 7, 9248, 796, 657, 8],
+    [38, 10128, 6032, 651, 8699, 4, 4048, 20753],
+    [21448, 7006, 930, 12901, 930, 7406, 7006, 198],
+    [13256, 11, 281, 1605, 3370, 11, 1444, 6771],
+    [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
+    [6601, 4237, 345, 460, 779, 284, 787, 257]
+], np.uint32)
 
+#FIXED_START_IDS = np.array([
+#    [818, 262, 938, 3155, 286, 1528, 11, 257],
+#    [198, 464, 968, 8221, 2732, 286, 15198, 318],
+#    [464, 968, 1971, 12056, 423, 257, 649, 1182],
+#    [464, 968, 1971, 3782, 468, 3199, 663, 5079],
+#    [818, 257, 1445, 326, 481, 1884, 787, 340],
+#    [464, 968, 1971, 12056, 6, 5859, 41683, 423],
+#    [198, 198, 464, 5398, 4332, 628, 628, 198],
+#    [464, 717, 640, 314, 2497, 262, 3807, 11],
+#], np.uint32)
 
 def send_requests(url, batch_size, input_start_ids, input_len, output_len, verbose, request_parallelism=10):
     model_name = "fastertransformer"
@@ -84,9 +96,7 @@ def send_requests(url, batch_size, input_start_ids, input_len, output_len, verbo
             print("get results\n")
 
             output_data = results[i].as_numpy("OUTPUT0")
-            output_data = output_data.reshape([-1, batch_size])
-            np.savetxt("triton_out", output_data, fmt='%u')
-            output_data = output_data.T
+            np.savetxt("triton_out", output_data.reshape([-1, output_data.shape[-1]]), fmt='%u')
             print("get results as OUTPUT0\n")
             if output_data is None:
                 print("error: expected 'OUTPUT0'")
@@ -127,7 +137,7 @@ if __name__ == '__main__':
                         '--warm_up',
                         action="store_true",
                         required=False,
-                        default=True,
+                        default=False,
                         help='Enable warm_up before benchmark')
 
     parser.add_argument('-b',
@@ -136,6 +146,13 @@ if __name__ == '__main__':
                         default=8,
                         required=False,
                         help='Specify batch size')
+    
+    parser.add_argument('-beam',
+                        '--beam_width',
+                        type=int,
+                        default=1,
+                        required=False,
+                        help='Specify beam width')
 
     parser.add_argument('-s',
                         '--start_len',
@@ -173,10 +190,17 @@ if __name__ == '__main__':
     input_start_ids = FIXED_START_IDS
 
     if FLAGS.random_start_ids:
-        input_start_ids = np.random.randint(0, 50255, size=(FLAGS.batch_size, FLAGS.start_len), dtype=np.uint32)
-
-    input_len = np.array([[sentence.size]
-                         for sentence in input_start_ids], np.uint32)
+        input_start_ids = np.random.randint(0, 50255, size=(FLAGS.batch_size, 1, FLAGS.start_len), dtype=np.uint32)
+    else:
+        input_start_ids = input_start_ids.reshape([input_start_ids.shape[0], 1, input_start_ids.shape[1]])
+    input_start_ids = np.tile(input_start_ids, (1, FLAGS.beam_width, 1))
+    input_len = np.array([[sentence.size] for sentence in input_start_ids], np.uint32)
+    
+    # tile for beam search 
+    # input_len = np.array([[sentence.size]
+    #                      for sentence in input_start_ids.reshape([FLAGS.batch_size * FLAGS.beam_width, -1])], np.uint32)
+    # input_len = input_len.reshape((FLAGS.batch_size, FLAGS.beam_width))
+    
     output_len = np.ones_like(input_len).astype(np.uint32) * FLAGS.output_len
 
     # Run async requests to make sure backend handles request batches
