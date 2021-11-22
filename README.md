@@ -44,13 +44,12 @@ Note that this is a research and prototyping tool, not a formal product or maint
     - [Prepare Triton GPT model store](#prepare-triton-gpt-model-store)
       - [INT8 weight only quantization (**Experimental**)](#int8-weight-only-quantization-experimental)
     - [Prepare Triton T5 model store in the docker](#prepare-triton-t5-model-store-in-the-docker)
-    - [NCCL_LAUNCH_MODE](#nccl_launch_mode)
+  - [NCCL_LAUNCH_MODE](#nccl_launch_mode)
     - [GPUs Topology](#gpus-topology)
-    - [MPI Launching with Tensor Parallel size and Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)
+  - [MPI Launching with Tensor Parallel size and Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)
   - [Run Serving on Single Node](#run-serving-on-single-node)
     - [Run serving directly](#run-serving-directly)
     - [Benchmark on single node](#benchmark-on-single-node)
-    - [Run end-to-end serving by Triton ensemble](#run-end-to-end-serving-by-triton-ensemble)
   - [Run Triton server on multiple nodes](#run-triton-server-on-multiple-nodes)
     - [Prepare Triton model store for multi-node setup](#prepare-triton-model-store-for-multi-node-setup)
     - [Run on cluster with Enroot/Pyxis support](#run-on-cluster-with-enrootpyxis-support)
@@ -278,7 +277,7 @@ Then we will get the model weights (`xxx.bin`) and the config file of model (`co
 - `len_penalty`: length penalty for logits adjusting
 - `beam_search_diversity_rate`: hyper-parameter for [simple diverse decoding](https://arxiv.org/pdf/1611.08562.pdf)
 
-### NCCL_LAUNCH_MODE
+## NCCL_LAUNCH_MODE
 
 In the docker file, `NCCL_LAUNCH_MODE=GROUP` is the default because it is less likely to hang. However, `NCCL_LAUNCH_MODE=PARALLEL` can bring better performance for 
 communication. Hence, users may be able to try to use `NCCL_LAUNCH_MODE=PARALLEL` to accelerate.
@@ -304,7 +303,7 @@ If your current machine/nodes are fully connected through PCIE or even across NU
 
 If you met timed-out or hangs, please first check the topology and try to use DGX V100 or DGX A100 with nvlink connected.
 
-### MPI Launching with Tensor Parallel size and Pipeline Parallel Size Setting
+## MPI Launching with Tensor Parallel size and Pipeline Parallel Size Setting
 
 We apply MPI to start single-node/multi-node servers.
 
@@ -325,71 +324,30 @@ We do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100
 
 ### Run serving directly
 
-This subsection demonstrates how to run the serving by the docker image directly. Users don't need to build the backend again. 
-
 ```bash
-# Since we set `default_model_filename` as `gpt3_345M`, the backend will load the model from the folder. 
-# If we don't set `default_model_filename`, the backend will load the model by `x-gpu`, where x depends on the tensor parallel way.
-cp ${TRITON_MODELS_STORE}/fastertransformer/1/1-gpu/ ${TRITON_MODELS_STORE}/fastertransformer/1/gpt3_345M -r
-
-docker run -it --rm --gpus=all -v ${TRITON_MODELS_STORE}:/model-store:ro -v ${WORKSPACE}:/workspace --shm-size=5G ${TRITON_DOCKER_IMAGE} bash
+docker run -it --rm --gpus=all -v ${TRITON_MODELS_STORE}:/model-store:ro -v ${WORKSPACE}:/ft_workspace ${TRITON_DOCKER_IMAGE} bash
 # now in docker
 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver --model-repository=/model-store &
-bash /workspace/fastertransformer_backend/tools/run_client.sh
-python /workspace/FasterTransformer/examples/pytorch/gpt/utils/gpt_token_converter.py \
+bash /ft_workspace/fastertransformer_backend/tools/run_client.sh
+python /ft_workspace/FasterTransformer/examples/pytorch/gpt/utils/gpt_token_converter.py \
   --out_file=triton_out \
-  --vocab_file=/workspace/models/gpt2-vocab.json \
-  --bpe_file=/workspace/models/gpt2-merges.txt
+  --vocab_file=/ft_workspace/models/gpt2-vocab.json \
+  --bpe_file=/ft_workspace/models/gpt2-merges.txt
 ```
 
 * Note: If user encounter `[ERROR] world_size (4) should equal to tensor_para_size_ * pipeline_para_size_ (1 * 1 here)`, please check that the GPU number of your device and set the GPUs you want to use by `CUDA_VISIBLE_DEVICES`. 
 * Recommend modifying the SERVER_TIMEOUT of common/util.sh to longer time
 
-When users want to stop the serving, run the following scripts
-
-```bash
-bash fastertransformer_backend/tools/kill_server.sh
-```
-
 ### Benchmark on single node
 
-Run this script with different batch size, input_len, output_len, num of runs on a single node with different gpus on different model size, it will start the server, then start the client to get the latency and stop the server at the end.
+Run this script with different batch size, input_len, output_len, num of runs on a single node with 8 gpus, it will start the server, then start the client to get the latency and stop the server at the end.
 
-Note that the following script does not work under ensemble mode. So, we need to remove the `all_models/ensemble` temporarily
+**TODO: need to update benchmark script for new Dockerfiles**
 
 ```
-rm fastertransformer_backend/all_models/ensemble
-ln -s $PWD/triton-model-store/fastertransformer/1/1-gpu/ $PWD/fastertransformer_backend/all_models/fastertransformer/1/1-gpu
-python fastertransformer_backend/tools/benchmark.py
+# run with batch_size = 8, input_len = 512, output_len = 16, and run 10 times to get the average latency
+bash $WORKSPACE/fastertransformer_backend/tools/benchmark_single_node.sh -b 8 -i 512 -o 16 -n 10
 ```
-
-### Run end-to-end serving by Triton ensemble
-
-We provide an end-to-end example at `tools/end_to_end_test.py`. Users can run it by 
-
-```bash
-ln -s $PWD/triton-model-store/fastertransformer/1/1-gpu/ $PWD/fastertransformer_backend/all_models/fastertransformer/1/gpt3_345M
-mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models/ &
-python $WORKSPACE/fastertransformer_backend/tools/end_to_end_test.py
-```
-
-* Evaluate the accuracy on LAMBADA.
-
-```bash
-wget https://github.com/cybertronai/bflm/raw/master/lambada_test.jsonl
-wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-vocab.json
-wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-merges.txt
-mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models/ &
-python $WORKSPACE/fastertransformer_backend/tools/evaluate_lambada.py --n-gram-disabled
-```
-
-The results should be like
-
-```bash
-[INFO] last token accuracy: 58.04% (total token num: 5153)
-```
-
-Note that we not only verify the top1 token, but also provide the accuracy of at most 4-gram because 1-gram does not fully verify the correctness of FT. The accuracy of 4-gram is often very slow because it is hard to get fully same results when we compare 4 grams each time, especially when the length of context is short. 
 
 ## Run Triton server on multiple nodes
 
