@@ -135,7 +135,7 @@ RET=0
 #rm -rf *.log
 
 SERVER=/opt/tritonserver/bin/tritonserver
-MODEL_PATH=$WORKSPACE/fastertransformer_backend/all_models
+MODEL_PATH=$WORKSPACE/fastertransformer_backend/all_models/gpt
 SERVER_ARGS="--model-repositor=$MODEL_PATH"
 SERVER_LOG="./${MODEL_FILENAME}_inference_server.log"
 
@@ -192,12 +192,6 @@ parameters {
   key: "tensor_para_size"
   value: {
     string_value: "'"${TENSOR_PARA_SIZE}"'"
-  }
-}
-parameters {
-  key: "pipeline_para_size"
-  value: {
-    string_value: "1"
   }
 }
 parameters {
@@ -312,6 +306,12 @@ parameters {
   key: "model_checkpoint_path"
   value: {
     string_value: "/workspace/fastertransformer_backend/all_models/fastertransformer/1/'"${TENSOR_PARA_SIZE}"'-gpu"
+  }
+}
+parameters {
+  key: "int8_mode"
+  value: {
+    string_value: "0"
   }
 }
 ' > config.pbtxt)

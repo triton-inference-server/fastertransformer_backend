@@ -1,4 +1,3 @@
-
 # Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -179,14 +178,21 @@ parameters {
     string_value: "0.0"
   }
 }
-dynamic_batching {
-  preferred_batch_size: [4, 8]
-  max_queue_delay_microseconds: 200000
-}
 parameters {
   key: "model_type"
   value: {
     string_value: "GPT"
   }
 }
-
+parameters {
+  key: "model_checkpoint_path"
+  value: {
+    string_value: "/home/scratch.bhsueh_sw/triton_backend_workspace/fastertransformer_backend/all_models/fastertransformer/1/8-gpu"
+  }
+}
+parameters {
+  key: "int8_mode"
+  value: {
+    string_value: "0"
+  }
+}

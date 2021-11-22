@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
 #
@@ -44,9 +45,8 @@ END_ID = 50256
 MAX_TEST_GRAM = 4
 
 
-def send_requests(url, input_start_ids, input_len, output_len, verbose, request_parallelism=10, model_name="fastertransformer"):
+def send_requests(url, input_start_ids, input_len, output_len, verbose, model_name="fastertransformer"):
     with client_util.InferenceServerClient(url,
-                                           concurrency=request_parallelism,
                                            verbose=verbose) as client:
         input_data = input_start_ids
         inputs = [
@@ -183,7 +183,7 @@ if __name__ == '__main__':
         # input_len = input_len.reshape((batch_size, FLAGS.beam_width))
         output_len = np.ones_like(input_len).astype(np.uint32)
         output_ids = send_requests(FLAGS.url, padded_context,
-                                   input_len, output_len, FLAGS.verbose, 2, FLAGS.model_name)
+                                   input_len, output_len, FLAGS.verbose, FLAGS.model_name)
 
         generated_tokens = output_ids[:, 0, -1]
         correct_num += (generated_tokens == labels).astype(np.int32).sum()
@@ -214,7 +214,7 @@ if __name__ == '__main__':
                 np.uint32) * MAX_TEST_GRAM
 
             output_ids = send_requests(FLAGS.url, context,
-                                       context_input_len, output_len, FLAGS.verbose, 2, FLAGS.model_name)
+                                       context_input_len, output_len, FLAGS.verbose, FLAGS.model_name)
 
             for j in range(1, MAX_TEST_GRAM + 1):
                 if i + j < padded_input_start_ids.shape[1]:

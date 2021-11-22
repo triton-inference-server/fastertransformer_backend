@@ -19,7 +19,7 @@
 # backend together with tritonserver, start from here
 # -------------------------------------------------- #
 
-ARG TRITON_VERSION=21.07
+ARG TRITON_VERSION=21.08
 ARG BASE_IMAGE=nvcr.io/nvidia/tritonserver:${TRITON_VERSION}-py3
 FROM ${BASE_IMAGE} as server-builder
 
@@ -66,20 +66,26 @@ RUN mkdir build -p && \
 
 FROM ${BASE_IMAGE} as server
 
+ENV NCCL_LAUNCH_MODE=GROUP
+
 COPY --from=server-builder /opt/tritonserver/backends/fastertransformer /opt/tritonserver/backends/fastertransformer
 
 # switch to server-builder if want build environment in docker file
 FROM server-builder as server-and-clients
 # FROM server as server-and-clients
 
-# DCGM and wkhtmltopdf are required by Triton Model Analyzer
-ENV DCGM_VERSION=2.0.13
+ENV DCGM_VERSION=2.2.8
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NCCL_LAUNCH_MODE=GROUP
+
+# DCGM and wkhtmltopdf are required by Triton Model Analyzer
 RUN apt-get update && \
     apt-get install --no-install-recommends -y curl python3-dev python3-pip python-is-python3 libb64-dev wget git wkhtmltopdf && \
-    curl -s -L -O https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/datacenter-gpu-manager_${DCGM_VERSION}_amd64.deb && \
-    dpkg -i datacenter-gpu-manager_${DCGM_VERSION}_amd64.deb && \
-    rm datacenter-gpu-manager_${DCGM_VERSION}_amd64.deb && \
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
+    mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
+    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub && \
+    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" && \
+    apt-get install -y datacenter-gpu-manager=1:${DCGM_VERSION} && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -88,7 +94,8 @@ ENV WORKSPACE /workspace
 WORKDIR /workspace
 
 # Install pytorch
-RUN pip3 install --extra-index-url https://pypi.ngc.nvidia.com torch regex fire
+RUN pip3 install torch==1.9.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html  && \
+    pip3 install --extra-index-url https://pypi.ngc.nvidia.com regex fire tritonclient[all]
 
 # for debug
 RUN apt-get update -q && \

@@ -6,3 +6,4 @@
 compile_commands.json
 ../all_models/fastertransformer/1/*
 *.pyc
+*.bin

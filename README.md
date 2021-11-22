@@ -28,19 +28,22 @@
 
 # FasterTransformer Backend
 
-The Triton backend for the [FasterTransformer](https://github.com/NVIDIA/FasterTransformer). This repository provides a script and recipe to run the highly optimized transformer-based encoder and decoder component, and it is tested and maintained by NVIDIA. In the FasterTransformer v4.0, it supports multi-gpu inference on GPT-3 model. This backend integrates FasterTransformer into Triton to use giant GPT-3 model serving by Triton. In the below example, we will show how to use the FasterTransformer backend in Triton to run inference on a GPT-3 model with 345M parameters trained by [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
+The Triton backend for the [FasterTransformer](https://github.com/NVIDIA/FasterTransformer). This repository provides a script and recipe to run the highly optimized transformer-based encoder and decoder component, and it is tested and maintained by NVIDIA. In the FasterTransformer v4.0, it supports multi-gpu inference on GPT-3 model. This backend integrates FasterTransformer into Triton to use giant GPT-3 model serving by Triton. In the below example, we will show how to use the FasterTransformer backend in Triton to run inference on a GPT-3 model with 345M parameters trained by [Megatron-LM](https://github.com/NVIDIA/Megatron-LM). In latest beta release, FasterTransformer backend supports the multi-node multi-GPU inference on T5 with the model of huggingface. 
 
 Note that this is a research and prototyping tool, not a formal product or maintained framework. User can learn more about Triton backends in the [backend repo](https://github.com/triton-inference-server/backend). Ask questions or report problems on the [issues page](https://github.com/triton-inference-server/fastertransformer_backend/issues) in this FasterTransformer_backend repo.
 
 ## Table Of Contents
-
+ 
 - [FasterTransformer Backend](#fastertransformer-backend)
   - [Table Of Contents](#table-of-contents)
   - [Introduction](#introduction)
   - [Setup](#setup)
     - [Prepare docker images](#prepare-docker-images)
       - [Rebuilding FasterTransformer backend (optional)](#rebuilding-fastertransformer-backend-optional)
-    - [Prepare Triton model store](#prepare-triton-model-store)
+    - [How to set the model configuration](#how-to-set-the-model-configuration)
+    - [Prepare Triton GPT model store](#prepare-triton-gpt-model-store)
+      - [INT8 weight only quantization (**Experimental**)](#int8-weight-only-quantization-experimental)
+    - [Prepare Triton T5 model store in the docker](#prepare-triton-t5-model-store-in-the-docker)
     - [NCCL_LAUNCH_MODE](#nccl_launch_mode)
     - [GPUs Topology](#gpus-topology)
     - [MPI Launching with Tensor Parallel size and Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)
@@ -52,6 +55,7 @@ Note that this is a research and prototyping tool, not a formal product or maint
     - [Prepare Triton model store for multi-node setup](#prepare-triton-model-store-for-multi-node-setup)
     - [Run on cluster with Enroot/Pyxis support](#run-on-cluster-with-enrootpyxis-support)
     - [How to Run multi-node on the Cluster with Slurm and Docker support](#how-to-run-multi-node-on-the-cluster-with-slurm-and-docker-support)
+  - [Changelog](#changelog)
 
 ## Introduction
 
@@ -159,7 +163,15 @@ Then you can commit changes to new docker image with:
 docker commit ft_backend_builder ${TRITON_DOCKER_IMAGE}
 ```
 
-### Prepare Triton model store
+### How to set the model configuration
+
+In triton backend, the model configuration is controled by the `config.pbtxt` in the folder we launch triton server. For example, the config file of FasterTransformer GPT backend is put in `all_models/gpt/fastertransformer/config.pbtxt`, and the config file of FasterTransformer T5 backend is put in `all_models/t5/fastertransformer/config.pbtxt`.
+
+In the config file of GPT, we can control the model hyper-parameters, like the `head_num` and `num_layer`. We can also control some inference hyper-parameters like `topk` in it.
+
+In the config file of T5, we can only control the inference hyper-parameter like `topk`. The model hyper-parameters are controled by the `config.ini` file which put in `model_checkpoint_path`. If the backend cannot file the model config file, it would crash and give error message.
+
+### Prepare Triton GPT model store
 
 Obtain Megatron 345M model checkpoint:
 
@@ -197,7 +209,7 @@ Copy the sample Triton model configuration with:
 
 ```shell
 cd ${WORKSPACE}
-cp fastertransformer_backend/all_models/fastertransformer/config.pbtxt ${TRITON_MODELS_STORE}/fastertransformer
+cp fastertransformer_backend/all_models/fastertransformer/gpt/config.pbtxt ${TRITON_MODELS_STORE}/fastertransformer
 ```
 
 Modify the Triton model configuration. User can modify the following hyper-parameters:
@@ -213,12 +225,78 @@ Modify the Triton model configuration. User can modify the following hyper-param
 - `vocab_size`: size of vocabulary
 - `decoder_layers`: number of transformer layers
 - `max_batch_size`: max supported batch size
+- `beam_width`: beam size for beam search
+- `temperature`: temperature for logits adjusting
+- `repetition_penalty`: repetition penalty for logits adjusting
+- `len_penalty`: length penalty for logits adjusting
+- `beam_search_diversity_rate`: hyper-parameter for [simple diverse decoding](https://arxiv.org/pdf/1611.08562.pdf)
+- `int8_mode`: 0 means disable. 1 means only quantizing the weight to int8.
+
+#### INT8 weight only quantization (**Experimental**)
+
+To accelerate the inference speed of giant model on small batch size, we add supporting of **INT8 weight only quantization**. Unlike traditional quantization which quantizes inputs, outputs and weights of GEMM, we only quantize the weight here. So, the model can keep the capability without fine-tune. For GEMM computing, the weight sizes are much larger than the size of inputs and outputs, using INT8 weight can reduce the time of loading weights from global memory. For GPT-175B with batch size 1, this brings about 1.3 ~ 1.4x speedup.
+
+However, there are some limitation for this features.
+
+1. The INT8 weight only kernel only brings speedup for batch size <= 2 now.
+2. Due to reason 1, we need to maintain both FP16 and INT8 weights at the same time to get better speed. This causes the model memory requirement grows 1.5x.
+3. The results of INT8 and FP16 weights may be little different.
+
+### Prepare Triton T5 model store in the docker
+
+Current docker file still not support T5 model directly. Need to install some packages manually.
+
+1. Download the t5-base model checkpoint from [huggingface](https://huggingface.co/models):
+
+```shell
+sudo apt-get install git-lfs
+git lfs install
+git clone https://huggingface.co/t5-base
+```
+
+2. Convert the checkpoint.
+
+```shell
+pip install -r ../tools/t5_utils/t5_requirement.txt
+python _deps/repo-ft-src/examples/pytorch/t5/utils/t5_ckpt_convert.py \
+  -o ../all_models/t5/fastertransformer/1/ -i t5-base/ -infer_gpu_num 2
+```
+
+Then we will get the model weights (`xxx.bin`) and the config file of model (`config.ini`) in the `../all_models/t5/fastertransformer/1/2-gpu/`. The `config.ini` file contains the hyper-parameters of both encoder and decoder. Other hyper-parameters for inference are put in `../all_models/t5/fastertransformer/config.pbtxt`. User can modify the following hyper-parameters:
+
+- `top_k`: k value of top k
+- `top_p`: p value of top p
+- `tensor_para_size`: size of tensor parallelism
+- `layer_para_size`: size of layer parallelism
+- `max_decoding_seq_len`: max supported sequence length in decoding
+- `max_encoder_seq_len`: max supported sequence length in encoder
+- `is_half`: using half or not
+- `max_batch_size`: max supported batch size
+- `beam_width`: beam size for beam search
+- `temperature`: temperature for logits adjusting
+- `repetition_penalty`: repetition penalty for logits adjusting
+- `len_penalty`: length penalty for logits adjusting
+- `beam_search_diversity_rate`: hyper-parameter for [simple diverse decoding](https://arxiv.org/pdf/1611.08562.pdf)
 
 ### NCCL_LAUNCH_MODE
 
-Before NCCL 2.9, `NCCL_LAUNCH_MODE = GROUP` is the default because it is less likely to hang. However, `NCCL_LAUNCH_MODE = PARALLEL` can bring better performance for communication. Hence, we suggest use `NCCL_LAUNCH_MODE = PARALLEL` if you are using NCCL before 2.9 (`export NCCL_LAUNCH_MODE=PARALLEL`).
+In the docker file, `NCCL_LAUNCH_MODE=GROUP` is the default because it is less likely to hang. However, `NCCL_LAUNCH_MODE=PARALLEL` can bring better performance for 
+communication. Hence, users may be able to try to use `NCCL_LAUNCH_MODE=PARALLEL` to accelerate.
 
-If you encountered a hang issue, you can try set `NCCL_LAUNCH_MODE = GROUP`.
+In current environment:
+```shell
+export NCCL_LAUNCH_MODE=PARALLEL
+```
+
+When building the Docker container changing the Dockerfile:
+```dockerfile
+ENV NCCL_LAUNCH_MODE=PARALLEL
+```
+
+Or passing environment variable on container start:
+```shell
+docker run -e NCCL_LAUNCH_MODE=PARALLEL ...
+```
 
 ### GPUs Topology
 
@@ -344,7 +422,7 @@ Remeber to change `tensor_para_size` and `pipeline_para_size` as suggested in [M
 ```bash
 WORKSPACE="/workspace" # the dir you build the docker
 IMAGE="github_or_gitlab/fastertransformer/multi-node-ft-triton-backend:latest"
-CMD="/opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models"
+CMD="/opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models/gpt"
 srun -N 2 -n 2 --mpi=pmix -o inference_server.log --container-mounts /home/account/your_network_shared_space/triton:/workspace --container-name multi-node-ft-triton --container-image $IMAGE bash -c "$CMD"
 ```
 
@@ -368,6 +446,50 @@ When you enter the master triton node, and send a request through the client, yo
 
 You can modify `$WORKSPACE/fastertransformer_backend/tools/identity_test.py` to have different `batch size`, `input length` and `output length` in requests.
 
+* Run GPT end-to-end serving by Triton ensemble
+
+We provide an end-to-end example of GPT at `tools/end_to_end_test.py`. Users can run it by 
+
+```bash
+python $WORKSPACE/fastertransformer_backend/tools/end_to_end_test.py
+```
+
+after launching the triton server.
+
+* Evaluate the accuracy of GPT model on LAMBADA.
+
+```bash
+wget https://github.com/cybertronai/bflm/raw/master/lambada_test.jsonl
+python $WORKSPACE/fastertransformer_backend/tools/evaluate_lambada.py --n-gram-disable
+```
+
+The results would be like
+
+```bash
+[INFO] last token accuracy:  xxx% (total token num: 5153)
+```
+
+Note that we not only verify the top1 token, but also provide the accuracy of at most 4-gram because 1-gram does not fully verify the correctness of FT. The accuracy of 4-gram is often very slow because it is hard to get fully same results when we compare 4 grams each time, especially when the length of context is short. User can run the evaluation by removing the `--n-gram-disable`.
+
+```bash
+python $WORKSPACE/fastertransformer_backend/tools/evaluate_lambada.py
+```
+
+* Evaluate the accuracy of T5 model.
+
+We provide a script to evaluate the T5 model by running translation from English to German on the testing dataset of FasterTransformer. Note that we need to launch the t5 backend. We skip the details here. User can run the evaluation by 
+
+```bash
+python $WORKSPACE/fastertransformer_backend/tools/t5_utils/t5_end_to_end_test.py
+```
+
+The results would be like
+
+```bash
+[INFO] ft_triton translates 24 batches taking 8.94 sec to translate 61374 tokens, BLEU score: 27.26, 6862 tokens/sec.
+```
+
+
 ### How to Run multi-node on the Cluster with Slurm and Docker support
 
 In order to run multiple nodes, you have to make sure that two nodes can access to each other without ssh issues. The process is almost the same as Enroot/Pyxis clusters: run servers on two nodes with MPIRUN or PMIX, and go to the master node to send requests to servers through the client. The script may differ according to your clusters and environment, but all need to make sure two nodes can get ssh access to each other and call MPIRUN on two nodes.
@@ -390,7 +512,22 @@ nvidia-docker exec -ti ft-backend-test bash
 
 cd fastertransformer_backend/build
 
-mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models &
+mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models/gpt &
 
 bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
 ```
+
+## Changelog
+
+Nov 2021
+- Release FasterTransformer backend 1.1 beta version 2.
+  - Support Multi-node Multi-GPU T5.
+  - Support INT8 weight only quantization (**Experimental**).
+
+Sep 2021
+- Release FasterTransformer backend 1.1 beta version 1.
+  - Support Multi-node on GPT.
+
+Apr 2021
+- **Release the FasterTransformer backend 1.0**.
+  - Support Multi-GPU on GPT.
