@@ -111,10 +111,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-protobuf \
         python3-setuptools \
         swig \
-        golang-go \
         nginx \
         protobuf-compiler \
         valgrind
+
+RUN wget https://go.dev/dl/go1.16.4.linux-amd64.tar.gz && \
+	rm -rf /usr/local/go && \
+	tar -C /usr/local -xzf go1.16.4.linux-amd64.tar.gz
+
+ENV PATH=/usr/local/go/bin:$PATH
 
 RUN pip3 install --upgrade wheel setuptools && \
     pip3 install --upgrade numpy pillow future grpcio requests gsutil awscli six boofuzz grpcio-channelz azure-cli
