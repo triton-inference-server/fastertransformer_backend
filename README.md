@@ -208,7 +208,7 @@ Copy the sample Triton model configuration with:
 
 ```shell
 cd ${WORKSPACE}
-cp fastertransformer_backend/all_models/fastertransformer/gpt/config.pbtxt ${TRITON_MODELS_STORE}/fastertransformer
+cp fastertransformer_backend/all_models/gpt/fastertransformer/config.pbtxt ${TRITON_MODELS_STORE}/fastertransformer
 ```
 
 Modify the Triton model configuration. User can modify the following hyper-parameters:
