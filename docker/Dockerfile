@@ -70,25 +70,6 @@ ENV NCCL_LAUNCH_MODE=GROUP
 
 COPY --from=server-builder /opt/tritonserver/backends/fastertransformer /opt/tritonserver/backends/fastertransformer
 
-# switch to server-builder if want build environment in docker file
-FROM server-builder as server-and-clients
-# FROM server as server-and-clients
-
-ENV DCGM_VERSION=2.2.8
-ENV DEBIAN_FRONTEND=noninteractive
-ENV NCCL_LAUNCH_MODE=GROUP
-
-# DCGM and wkhtmltopdf are required by Triton Model Analyzer
-RUN apt-get update && \
-    apt-get install --no-install-recommends -y curl python3-dev python3-pip python-is-python3 libb64-dev wget git wkhtmltopdf && \
-    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
-    mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
-    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub && \
-    add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" && \
-    apt-get install -y datacenter-gpu-manager=1:${DCGM_VERSION} && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 # set workspace
 ENV WORKSPACE /workspace
 WORKDIR /workspace
