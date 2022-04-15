@@ -1,5 +1,5 @@
 <!--
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021 - 2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -28,189 +28,200 @@
 
 # FasterTransformer Backend
 
-The Triton backend for the [FasterTransformer](https://github.com/NVIDIA/FasterTransformer). This repository provides a script and recipe to run the highly optimized transformer-based encoder and decoder component, and it is tested and maintained by NVIDIA. In the FasterTransformer v4.0, it supports multi-gpu inference on GPT-3 model. This backend integrates FasterTransformer into Triton to use giant GPT-3 model serving by Triton. In the below example, we will show how to use the FasterTransformer backend in Triton to run inference on a GPT-3 model with 345M parameters trained by [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
+The Triton backend for the [FasterTransformer](https://github.com/NVIDIA/FasterTransformer). This repository provides a script and recipe to run the highly optimized transformer-based encoder and decoder component, and it is tested and maintained by NVIDIA. In the FasterTransformer v4.0, it supports multi-gpu inference on GPT-3 model. This backend integrates FasterTransformer into Triton to use giant GPT-3 model serving by Triton. In the below example, we will show how to use the FasterTransformer backend in Triton to run inference on a GPT-3 model with 345M parameters trained by [Megatron-LM](https://github.com/NVIDIA/Megatron-LM). In latest beta release, FasterTransformer backend supports the multi-node multi-GPU inference on T5 with the model of huggingface. 
 
 Note that this is a research and prototyping tool, not a formal product or maintained framework. User can learn more about Triton backends in the [backend repo](https://github.com/triton-inference-server/backend). Ask questions or report problems on the [issues page](https://github.com/triton-inference-server/fastertransformer_backend/issues) in this FasterTransformer_backend repo.
 
 ## Table Of Contents
-
+ 
 - [FasterTransformer Backend](#fastertransformer-backend)
   - [Table Of Contents](#table-of-contents)
+  - [Introduction](#introduction)
   - [Setup](#setup)
-  - [Run Serving](#run-serving)
+    - [Prepare docker images](#prepare-docker-images)
+      - [Rebuilding FasterTransformer backend (optional)](#rebuilding-fastertransformer-backend-optional)
+  - [NCCL_LAUNCH_MODE](#nccl_launch_mode)
+    - [GPUs Topology](#gpus-topology)
+  - [MPI Launching with Tensor Parallel size and Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)
+  - [Request examples](#request-examples)
+  - [Changelog](#changelog)
+
+## Introduction
+
+FasterTransformer backend hopes to integrate the FasterTransformer into Triton, leveraging the efficiency of FasterTransformer and serving capabilities of Triton. To run the GPT-3 model, we need to solve the following two issues: 1. How to run the auto-regressive model? 2. How to run the model with multi-gpu and multi-node?
+
+For the issue of auto-regressive model, the workflow of auto-regressive model is like:
+
+1. FasterTransformer backend receives input [A]
+2. Compute the query (q), key (k) and value (v) by the input [A].
+3. Compute attention: `qk = q * k` and `qkv = qk * v`.
+4. Compute other operations of transformer, like Feed Forward Network.
+5. Generate next token B, return to Triton server.
+6. FasterTransformer backend receives inputs [A, B]
+7. Compute the query (q') by [B], keys (k') and values (v') by the inputs [A, B].
+8. Compute attention: `qk' = q' * k'` and `qkv' = qk' * v'`.
+9. Compute other operations of transformer, like Feed Forward Network.
+10. Generate next token C, return to Triton server.
+
+We see that we need to compute the attention by current query and all keys and values. We can find that some computing are wasted, like computing the key of A at step 6 because we have the same results at step 2. To prevent these wasted computing, we need a mechanism to store these states. Currently, Triton does not support such feature, so FasterTransformer handles the whole workflow, storing the keys and values states, and only return the final results. The workflow in FasterTransformer is:
+
+1. Allocate a cache buffer K and V for keys and values respectively.
+2. FasterTransformer backend receives input [A]
+3. Compute the query (q), key (k) and value (v) by the input [A]. Put the k into K[0] and v into V[0].
+4. Compute attention: `qk = q * K[:1]` and `qkv = qk * V[:1]`.
+5. Compute other operations of transformer, like Feed Forward Network.
+6. Generate next token B, set [B] as input.
+7. Compute the query (q'), key (k') and value (v') by the input [B]. Put the k' into K[1] and v' into V[1].
+8. Compute attention: `qk' = q' * K[:2]` and `qkv' = qk' * V[:2]`.
+9. Compute other operations of transformer, like Feed Forward Network.
+10. Generate next token C, set [C] as input.
+
+For the issue of running the model with multi-gpu and multi-node, FasterTransformer backend uses the MPI to communicate between multiple nodes, and uses multi-threads to control the GPUs in one node. Figure 1 demonstrates the workflow of multi-gpu and multi-node in FasterTransformer backend.
+
+<div align=center><img src ="images/multi_gpu_multi_node_workflow.png "/></div>
+<div align=center>Fig. 1 Workflow of multi-gpu and multi-node in FasterTransformer backend.</div>
 
 ## Setup
 
-* Prepare Machine
-
-We provide a docker file, which bases on Triton image `nvcr.io/nvidia/tritonserver:21.02-py3`, to setup the environment.
-
 ```bash
-mkdir workspace && cd workspace 
-git clone https://github.com/triton-inference-server/fastertransformer_backend.git
-nvidia-docker build --tag ft_backend --file fastertransformer_backend/Dockerfile .
-nvidia-docker run --gpus=all -it --rm --volume $PWD:/workspace -w /workspace --name ft-work  ft_backend
 export WORKSPACE=$(pwd)
+export SRC_MODELS_DIR=${WORKSPACE}/models
+export TRITON_MODELS_STORE=${WORKSPACE}/triton-model-store
+export CONTAINER_VERSION=22.03
+export TRITON_DOCKER_IMAGE=triton_with_ft:${CONTAINER_VERSION}
 ```
 
-* Install libraries for Megatron (option)
+### Prepare docker images
+
+The current official Triton Inference Server docker image doesn't contain
+FasterTransformer backend, thus the users must prepare own docker image using below command:
 
 ```bash
-pip install torch regex fire
-git clone https://github.com/NVIDIA/apex
-cd apex
-pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+cd ${WORKSPACE}
+git clone https://github.com/triton-inference-server/fastertransformer_backend
+git clone https://github.com/triton-inference-server/server.git # We need some tools when we test this backend
+git clone https://github.com/NVIDIA/FasterTransformer.git # Used for convert the checkpoint and triton output
+ln -s server/qa/common .
+cd fastertransformer_backend
+docker build --rm   \
+    --build-arg TRITON_VERSION=${CONTAINER_VERSION}   \
+    -t ${TRITON_DOCKER_IMAGE} \
+    -f docker/Dockerfile \
+    .
 ```
 
-* Build FT backend
+For testing purposes' docker image will also contain set of tools for model deployment testing.
+
+Push built docker images to docker registry, so that we can later obtain it and initialize it on multiple nodes.
 
 ```bash
-cd $WORKSPACE
-git clone https://github.com/triton-inference-server/server.git
-export PATH=/usr/local/mpi/bin:$PATH
-source fastertransformer_backend/build.env
-mkdir -p fastertransformer_backend/build && cd $WORKSPACE/fastertransformer_backend/build
-cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 .. && make -j32
+docker tag ${TRITON_DOCKER_IMAGE} <github_or_gitlab/repo_name/image_name>:${CONTAINER_VERSION}
+docker push <github_or_gitlab/repo_name/image_name>:${CONTAINER_VERSION}
 ```
 
-* Prepare model
+#### Rebuilding FasterTransformer backend (optional)
+
+Everytime you need to build updated fastertransformer_backend you can build docker image.
+
+But also you can build it manually in interactive session (ex during fixing code on target node) with:
 
 ```bash
-git clone https://github.com/NVIDIA/Megatron-LM.git
-wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-vocab.json -P models
-wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-merges.txt -P models
-wget --content-disposition https://api.ngc.nvidia.com/v2/models/nvidia/megatron_lm_345m/versions/v0.0/zip -O megatron_lm_345m_v0.0.zip
-mkdir -p models/megatron-models/345m
-unzip megatron_lm_345m_v0.0.zip -d models/megatron-models/345m
-python _deps/repo-ft-src/sample/pytorch/utils/megatron_ckpt_convert.py -i ./models/megatron-models/345m/release/ -o ./models/megatron-models/c-model/345m/ -t_g 1 -i_g 8 -h_n 16
-cp ./models/megatron-models/c-model/345m/8-gpu $WORKSPACE/fastertransformer_backend/all_models/fastertransformer/1/ -r
+docker run -it \
+    -v ${WORKSPACE}:/workspace \
+    --name ft_backend_builder \
+    ${TRITON_DOCKER_IMAGE} bash
+# in docker container
+rm /opt/tritonserver/lib/cmake/FasterTransformer/ -rf # Remove original library
+cd fastertransformer_backend
+mkdir build -p && cd build && \
+    cmake \
+      -D CMAKE_EXPORT_COMPILE_COMMANDS=1 \
+      -D CMAKE_BUILD_TYPE=Release \
+      -D CMAKE_INSTALL_PREFIX=/opt/tritonserver \
+      -D TRITON_COMMON_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
+      -D TRITON_CORE_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
+      -D TRITON_BACKEND_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
+      .. && \
+    make -j"$(grep -c ^processor /proc/cpuinfo)" install
 ```
 
-* **Prepare the ft-triton-backend docker**
+where `${WORKSPACE}` should contain `fastertransformer_backend` directory with code to build.
 
-Push a ft-triton-backend-docker so that we can initilize them on multiple nodes
+Then you can commit changes to new docker image with:
 
 ```bash
-ctrl p + ctrl q #detach a container
-docker ps -a #get the container name
-docker commit container_name github_or_gitlab/repo_name/image_name:latest
-docker push github_or_gitlab/repo_name/image_name:latest
+docker commit ft_backend_builder ${TRITON_DOCKER_IMAGE}
 ```
 
+## NCCL_LAUNCH_MODE
 
-## Run Serving on Single Node
+In the docker file, `NCCL_LAUNCH_MODE=GROUP` is the default because it is less likely to hang. However, `NCCL_LAUNCH_MODE=PARALLEL` can bring better performance for 
+communication. Hence, users may be able to try to use `NCCL_LAUNCH_MODE=PARALLEL` to accelerate.
 
-* Run servning directly
-
-```bash
-cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/fastertransformer
-cd $WORKSPACE && ln -s server/qa/common .
-# Recommend to modify the SERVER_TIMEOUT of common/util.sh to longer time
-cd $WORKSPACE/fastertransformer_backend/build/
-# bash $WORKSPACE/fastertransformer_backend/tools/run_server.sh # This method fails since we add MPI features
-mpirun -n 1 /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models/ &
-bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
-python _deps/repo-ft-src/sample/pytorch/utils/convert_gpt_token.py --out_file=triton_out # Used for checking result
+In current environment:
+```shell
+export NCCL_LAUNCH_MODE=PARALLEL
 ```
 
-* Modify the model configuration
-
-The model configuration for Triton server is put in `all_models/transformer/config.pbtxt`. User can modify the following hyper-parameters:
-
-- candidate_num: k value of top k
-- probability_threshold: p value of top p
-- tensor_para_size: size of tensor parallelism
-- layer_para_size: size of layer parallelism
-- layer_para_batch_size: Useless in Triton backend becuase this backend only supports single node, and user are recommended to use tensor parallel in single node
-- max_seq_len: max supported sequence length
-- is_half: Using half or not
-- head_num: head number of attention
-- size_per_head: size per head of attention
-- vocab_size: size of vocabulary
-- decoder_layers: number of transformer layers
-- batch_size: max supported batch size
-- is_fuse_QKV: fusing QKV in one matrix multiplication or not. It also depends on the weights of QKV.
-
-* Benchmark on single node
-
-Run this script with different batch size, input_len, output_len, num of runs on a single node with 8 gpus, it will start the server, then start the client to get the latency and stop the server at the end.
-
-```
-# run with batch_size = 8, input_len = 512, output_len = 16, and run 10 times to get the average latency
-bash $WORKSPACE/fastertransformer_backend/tools/benchmark_single_node.sh -b 8 -i 512 -o 16 -n 10
-
+When building the Docker container changing the Dockerfile:
+```dockerfile
+ENV NCCL_LAUNCH_MODE=PARALLEL
 ```
 
-
-
-
-
-## How to Run multi-node on the Cluster with Enroot/Pyxis support
-
-**Warp up everything in a docker**: as described in *Prepare the ft-triton-backend docker* step.
-
-First allocate two nodes:
-
-```bash
-salloc -A account_name -t 10:00:00 -N 2
+Or passing environment variable on container start:
+```shell
+docker run -e NCCL_LAUNCH_MODE=PARALLEL ...
 ```
 
-Then run the script shown below to start two nodes' server. `Ctrl+Z` and `bg` in order to run on the background.
--N and -n should be equal to the number of nodes because we start one process per node. If you need to run on three nodes, then -N 3 and -n 3.
-Remeber to change `tensor_para_size` and `layer_para_size` if you run on multiple nodes (`total number of gpus = num_gpus_per_node x num_nodes = tensor_para_size x layer_para_size`), we do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100), and layer_para_size = number of nodes (2 for two nodes). Other model configuration in config.pbtxt should be modified as normal.
+### GPUs Topology
 
-```bash
-WORKSPACE="/workspace" # the dir you build the docker
-IMAGE="github_or_gitlab/fastertransformer/multi-node-ft-triton-backend:latest"
-CMD="cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/fastertransformer;/opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models"
-srun -N 2 -n 2 --mpi=pmix -o inference_server.log --container-mounts /home/account/your_network_shared_space/triton:/workspace --container-name multi-node-ft-triton --container-image $IMAGE bash -c "$CMD"
-```
+If your current machine/nodes are fully connected through PCIE or even across NUMA nodes, there could be poor NCCL performance or even NCCL hangs due to limited peer to peer communication. You can apply `nvidia-smi topo -m` to check the topology.
 
-Next, enter the master triton node (the node where MPI_Rank = 0, normally it is the allocated node with the smallest id) when servers have been started shown in the inference log:
-
-```bash
-srun -w master-node-name --overlap --container-name multi-node-ft-triton --container-mounts /home/account/your_network_shared_space/triton:/workspace --pty bash # --overlap may not be needed in your slurm environment
-```
-
-Finally, run the client in the master triton node:
-
-```bash
-export WORKSPACE="/workspace"
-bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
-```
-
-You can refer to `inference_server.log` on the login-node for the inference server log.
-When you enter the master triton node, and send a request through the client, you can get the `client.log`, `error.log` and `triton_out` in the current directory.
-
-You can modify `$WORKSPACE/fastertransformer_backend/tools/identity_test.py` to have different `batch size`, `input length` and `output length` in requests.
-
-## How to Run multi-node on the Cluster with Slurm and Docker support
-
-In order to run multiple nodes, you have to make sure that two nodes can access to each other without ssh issues. The process is almost the same as Enroot/Pyxis clusters: run servers on two nodes with MPIRUN or PMIX, and go to the master node to send requests to servers through the client. The script may differ according to your clusters and environment, but all need to make sure two nodes can get ssh access to each other and call MPIRUN on two nodes.
-
-```bash
-export IMAGE="github_or_gitlab/fastertransformer/multi-node-ft-triton-backend:latest" # the image you update in the previous step
-export WORKSPACE="/home/name/workspace" # your workspace
-
-srun -N2 -n2 -t 600 --pty bash # Assume the two nodes are luna-01, luna-02
-
-srun -N2 -n2 docker pull $IMAGE
-
-srun -N2 -n2  nvidia-docker run -itd --rm --privileged --network=host --pid=host --cap-add=IPC_LOCK --device=/dev/infiniband -v /$CONT_VOL:$HOST_VOL -v $WORKSPACE:$WORKSPACE -w $WORKSPACE --name ft-backend-test $IMAGE /bin/bash
-
-#set up ssh
-srun -N2 -n2  nvidia-docker exec -i --env SLURM_NTASKS --env SLURM_NODEID --env SLURM_PROCID --env SLURM_STEP_NODELIST --env SLURMD_NODENAME --privileged ft-backend-test bash -c "mkdir /root/.ssh && cp $WORKSPACE/ssh/* /root/.ssh && chmod 700 /root/.ssh && chmod 640 /root/.ssh/authorized_keys && chmod 400 /root/.ssh/id_rsa && apt-get update && apt-get install ssh -y && mkdir /run/sshd/ && /usr/sbin/sshd -p 11068 && nvidia-smi -lgc 1530"
-
-# luna-01, luna-02
-nvidia-docker exec -ti ft-backend-test bash
-
-cd fastertransformer_backend/build
-
-mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so /opt/tritonserver/backends/transformer
-
-mpirun --allow-run-as-root -np 2 -H luna-01:1,luna-02:1 -mca plm_rsh_args "-p 11068" /opt/tritonserver/bin/tritonserver --model-repository=$WORKSPACE/fastertransformer_backend/all_models &
-
-bash $WORKSPACE/fastertransformer_backend/tools/run_client.sh
-```
+If you met timed-out or hangs, please first check the topology and try to use DGX V100 or DGX A100 with nvlink connected.
 
 
+## MPI Launching with Tensor Parallel size and Pipeline Parallel Size Setting
+
+We apply MPI to start single-node/multi-node servers.
+
+- N: Number of MPI Processes/Number of Nodes
+- T: Tensor Parallel Size. Default 8
+- P: Pipeline Parallel Size. Default 1
+
+`total number of gpus = num_gpus_per_node x N = T x P`
+
+**Note** that we currently do not support the case that different nodes have different number of GPUs.
+
+We start one MPI process per node. If you need to run on three nodes, then you should launch 3 Nodes with one process per node.
+Remeber to change `tensor_para_size` and `pipeline_para_size` if you run on multiple nodes. 
+
+We do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100), and pipeline_para_size = number of nodes (2 for two nodes). Other model configuration in config.pbtxt should be modified as normal.
+
+## Request examples
+
+The `tools` directory provides python scripts to send requests to the triton server. You can build upon those examples to suit your needs.
+
+Specically `tools/issue_request.py` is a simple script that sends a request contained in a JSON file. You may use it with `$python3 tools/issue_request.py tools/requests/sample_request.json`, for example. You can also pass command-line arguments as a JSON-formatted string with the `--params` argument.
+
+## Changelog
+
+April 2022
+- Support bfloat16 inference in GPT model.
+- Support Nemo Megatron T5 and Megatron-LM T5 model.
+- Support optional input in fastertransformer backends. (Only supported after Triton 22.01)
+
+Jan 2022
+- Move runtime argument like topk into backend input.
+
+Nov 2021
+- Release FasterTransformer backend 1.1 beta version 2.
+  - Support Multi-node Multi-GPU T5.
+  - Support INT8 weight only quantization (**Experimental**).
+
+Sep 2021
+- Release FasterTransformer backend 1.1 beta version 1.
+  - Support Multi-node on GPT.
+
+Apr 2021
+- **Release the FasterTransformer backend 1.0**.
+  - Support Multi-GPU on GPT.

@@ -4,4 +4,6 @@
 *.run
 .clangd
 compile_commands.json
-../all_models/transformer/1/*
+../all_models/fastertransformer/1/*
+*.pyc
+*.bin

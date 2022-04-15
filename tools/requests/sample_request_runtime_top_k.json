@@ -1,0 +1,87 @@
+{
+    "request": [
+        {
+            "name": "input_ids",
+            "data": [[9915, 27221, 59, 77, 383, 1853, 3327, 1462],
+                [9915, 27221, 59, 77, 383, 1853, 3327, 1462]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "input_lengths",
+            "data": [[8], [8]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "request_output_len",
+            "data": [[24], [24]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "beam_search_diversity_rate",
+            "data": [[0], [0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "temperature",
+            "data": [[1.0], [1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "len_penalty",
+            "data": [[1.0], [1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "repetition_penalty",
+            "data": [[1.0], [1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "random_seed",
+            "data": [[0], [0]],
+            "dtype": "int32"
+        },
+        {
+            "name": "is_return_log_probs",
+            "data": [[true], [true]],
+            "dtype": "bool"
+        },
+        {
+            "name": "beam_width",
+            "data": [[1], [1]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "runtime_top_k",
+            "data": [[1], [2]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "runtime_top_p",
+            "data": [[0.0], [0.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "start_id",
+            "data": [[50256], [50256]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "end_id",
+            "data": [[50256], [50256]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "stop_words_list",
+            "data": [[[0], [-1]],
+                     [[0], [-1]]],
+            "dtype": "int32"
+        },
+        {
+            "name": "bad_words_list",
+            "data": [[[0], [-1]],
+                     [[0], [-1]]],
+            "dtype": "int32"
+        }
+    ]
+}

@@ -1,4 +1,5 @@
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+echo '
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -26,30 +27,85 @@
 
 name: "fastertransformer"
 backend: "fastertransformer"
-default_model_filename: "gpt3-c-model-8gpu"
+default_model_filename: "gpt-j-6b"
 max_batch_size: 128
 input [
   {
-    name: "INPUT_ID"
+    name: "input_ids"
     data_type: TYPE_UINT32
     dims: [ -1 ]
   },
   {
-    name: "REQUEST_INPUT_LEN"
+    name: "input_lengths"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
   },
   {
-    name: "REQUEST_OUTPUT_LEN"
+    name: "request_output_len"
+    data_type: TYPE_UINT32
+    dims: [ -1 ]
+  },
+  {
+    name: "runtime_top_k"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "runtime_top_p"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "beam_search_diversity_rate"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+      name: "temperature"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "len_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "repetition_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "random_seed"
+      data_type: TYPE_INT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "is_return_log_probs"
+      data_type: TYPE_BOOL
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "beam_width"
+      data_type: TYPE_UINT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
   }
 ]
 output [
   {
-    name: "OUTPUT0"
+    name: "output_ids"
     data_type: TYPE_UINT32
-    dims: [ -1 ]
+    dims: [ -1, -1 ]
   }
 ]
 instance_group [
@@ -58,15 +114,14 @@ instance_group [
     kind : KIND_CPU
   }
 ]
-
 parameters {
-  key: "candidate_num"
+  key: "top_k"
   value: {
     string_value: "1"
   }
 }
 parameters {
-  key: "probability_threshold"
+  key: "top_p"
   value: {
     string_value: "0.0"
   }
@@ -74,25 +129,25 @@ parameters {
 parameters {
   key: "tensor_para_size"
   value: {
-    string_value: "8"
+    string_value: "1"
   }
 }
 parameters {
-  key: "layer_para_size"
+  key: "pipeline_para_size"
   value: {
     string_value: "1"
   }
 }
 parameters {
-  key: "layer_para_batch_size"
+  key: "max_input_len"
   value: {
-    string_value: "8"
+    string_value: "512"
   }
 }
 parameters {
   key: "max_seq_len"
   value: {
-    string_value: "32"
+    string_value: "528"
   }
 }
 parameters {
@@ -110,35 +165,53 @@ parameters {
 parameters {
   key: "size_per_head"
   value: {
+    string_value: "256"
+  }
+}
+parameters {
+  key: "inter_size"
+  value: {
+    string_value: "16384"
+  }
+}
+parameters {
+  key: "rotary_embedding"
+  value: {
     string_value: "64"
   }
 }
 parameters {
   key: "vocab_size"
   value: {
-    string_value: "50304"
+    string_value: "50400"
+  }
+}
+parameters {
+  key: "start_id"
+  value: {
+    string_value: "50256"
+  }
+}
+parameters {
+  key: "end_id"
+  value: {
+    string_value: "50256"
   }
 }
 parameters {
   key: "decoder_layers"
   value: {
-    string_value: "24"
+    string_value: "28"
   }
 }
 parameters {
   key: "model_name"
   value: {
-    string_value: "gpt_345M"
+    string_value: "gpt-j-6b"
   }
 }
 parameters {
-  key: "batch_size"
-  value: {
-    string_value: "128"
-  }
-}
-parameters {
-  key: "is_fuse_QKV"
+  key: "beam_width"
   value: {
     string_value: "1"
   }
@@ -155,3 +228,22 @@ parameters {
     string_value: "1.0"
   }
 }
+parameters {
+  key: "len_penalty"
+  value: {
+    string_value: "1.0"
+  }
+}
+parameters {
+  key: "beam_search_diversity_rate"
+  value: {
+    string_value: "0.0"
+  }
+}
+parameters {
+  key: "model_type"
+  value: {
+    string_value: "GPT-J"
+  }
+}
+' >> config.pbtxt

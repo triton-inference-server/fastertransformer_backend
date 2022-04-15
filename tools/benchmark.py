@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -66,7 +66,7 @@ class GPUUtilTracker():
 
 
 class Benchmark():
-    def __init__(self, model_name, input_len, output_len, num_run, num_decoder_layer, num_header, size_per_header, max_batch_size, vocab_size):
+    def __init__(self, model_name, input_len, output_len, num_run, num_decoder_layer, num_header, size_per_header, max_batch_size, vocab_size, tensor_para_size=8):
         self.model_name = model_name
         self.input_len = input_len
         self.output_len = output_len
@@ -77,9 +77,15 @@ class Benchmark():
         self.gpu_mem_footprint = []
         self.max_batch_size = max_batch_size
         self.vocab_size = vocab_size
+        self.tensor_para_size = tensor_para_size
         self.server_log = f"{self.model_name}_inference_server.log"
         self.client_log = f"{self.model_name}_client.log"
         self.data_points = []
+
+    def cal_num_params(self):
+        hidden_size = self.num_header * self.size_per_header
+        return 12 * self.num_decoder_layer * hidden_size * hidden_size * \
+            (1 + 13 / (12 * hidden_size) + (self.vocab_size + 2048) / (12 * self.num_decoder_layer * hidden_size))
 
     def parse_log(self, batch_size):
         cmd = f"tail -n 1 {self.client_log} | grep -Eo '[+-]?[0-9]+([.][0-9]+)?'"
@@ -116,17 +122,18 @@ class Benchmark():
         g_tracker = GPUUtilTracker()
         t = Thread(target=g_tracker.run)
         t.start()
-        cmd = f"bash {os.getenv('WORKSPACE')}/fastertransformer_backend/tools/benchmark_single_node.sh -b {batch_size} -m {self.model_name} -i {self.input_len} -o {self.output_len} -d {self.num_decoder_layer} -h_n {self.num_header} -s_h {self.size_per_header} -v {self.vocab_size} -n {self.num_run}"
+        devices = "CUDA_VISIBLE_DEVICES=" + ",".join([ str(i) for i in range(self.tensor_para_size) ])
+        cmd = f"{devices} bash {os.getenv('WORKSPACE')}/fastertransformer_backend/tools/benchmark_single_node.sh -b {batch_size} -m {self.model_name} -i {self.input_len} -o {self.output_len} -d {self.num_decoder_layer} -h_n {self.num_header} -s_h {self.size_per_header} -v {self.vocab_size} -n {self.num_run} -t_p {self.tensor_para_size}"
         print(cmd)
         proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = proc.communicate()
         bs_latency = self.parse_log(batch_size)
-        print(self.data_points)
         g_tracker.terminate()
         t.join()
         self.data_points.append(bs_latency + g_tracker.get_results())
 
     def start(self):
+        print("Estimated num param: ", "{:,}".format(int(self.cal_num_params())))
         os.getenv('WORKSPACE')
         bs = 1
         while (bs <= self.max_batch_size):
@@ -142,30 +149,42 @@ class Benchmark():
 
 if __name__ == '__main__':
     
-    #b = Benchmark("125M", 512, 32, 10, num_decoder_layer=12, num_header=12, size_per_header=64, max_batch_size=64, vocab_size=51200)
-    #b.start()
-    #b.to_csv()
-    #b = Benchmark("3-gpu", 512, 32 , 10, 3, 32, 64, 2, 50304)
-    
-    b = Benchmark("350M", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=64, max_batch_size=64, vocab_size=51200)
-    b.start()
-    b.to_csv()
+    # b = Benchmark("125M", 512, 32, 10, num_decoder_layer=12, num_header=12, size_per_header=64, max_batch_size=64, vocab_size=51200)
+    # b.start()
+    # b.to_csv()
 
-    b = Benchmark("760M", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=96, max_batch_size=64, vocab_size=51200)
-    b.start()
-    b.to_csv()
+    tensor_para_size = 1
+    while (tensor_para_size <= 8):
+        b = Benchmark(f"350M_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=64, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
+        b.start()
+        b.to_csv()
+        tensor_para_size = tensor_para_size * 2
 
-    b = Benchmark("1.3B", 512, 32 , 10, 24, 32, 64, 64, 50304) # 1.3B
-    b.start()
-    b.to_csv()
+    # b = Benchmark("760M", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=96, max_batch_size=64, vocab_size=51200)
+    # b.start()
+    # b.to_csv()
 
-    b = Benchmark("2.7B", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=80, max_batch_size=64, vocab_size=51200)
-    b.start()
-    b.to_csv()
+    # b = Benchmark("1.3B", 512, 32 , 10, 24, 32, 64, 64, 50304) # 1.3B
+    # b.start()
+    # b.to_csv()
 
-    b = Benchmark("6.7B", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200)
-    b.start()
-    b.to_csv()
+    # b = Benchmark("2.7B", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=80, max_batch_size=64, vocab_size=51200)
+    # b.start()
+    # b.to_csv()
+
+    tensor_para_size = 1
+    while (tensor_para_size <= 8):
+        b = Benchmark(f"5.11B_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=24, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
+        b.start()
+        b.to_csv()
+        tensor_para_size = tensor_para_size * 2
+
+    tensor_para_size = 1
+    while (tensor_para_size <= 8):
+        b = Benchmark(f"6.7B_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
+        b.start()
+        b.to_csv()
+        tensor_para_size = tensor_para_size * 2
 
     b = Benchmark("13B", 512, 32, 10, num_decoder_layer=40, num_header=40, size_per_header=128, max_batch_size=64, vocab_size=51200)
     b.start()
@@ -178,6 +197,11 @@ if __name__ == '__main__':
     b = Benchmark("175B", 512, 32, 10, num_decoder_layer=96, num_header=96, size_per_header=128, max_batch_size=64, vocab_size=51200)
     b.start()
     b.to_csv()
+
+    # # test size_per_header=160
+    # #b = Benchmark("272B", 512, 32, 10, num_decoder_layer=96, num_header=96, size_per_header=160, max_batch_size=32, vocab_size=51200)
+    # #b.start()
+    # #b.to_csv()
 
     b = Benchmark("310B", 512, 32, 10, num_decoder_layer=96, num_header=128, size_per_header=128, max_batch_size=1, vocab_size=51200)
     b.start()

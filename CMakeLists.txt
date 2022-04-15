@@ -1,4 +1,4 @@
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@
 
 cmake_minimum_required (VERSION 3.18)
 
-project(tritontransformerbackend LANGUAGES C CXX)
+project(tritonfastertransformerbackend LANGUAGES C CXX)
 
 #
 # Options
@@ -36,13 +36,18 @@ option(TRITON_ENABLE_STATS "Include statistics collections in backend" ON)
 set(TRITON_PYTORCH_INCLUDE_PATHS "" CACHE PATH "Paths to Torch includes")
 set(TRITON_PYTORCH_LIB_PATHS "" CACHE PATH "Paths to Torch libraries")
 
-set(TRITON_BACKEND_REPO_TAG "r21.02" CACHE STRING "Tag for triton-inference-server/backend repo")
-set(TRITON_CORE_REPO_TAG "r21.02" CACHE STRING "Tag for triton-inference-server/core repo")
-set(TRITON_COMMON_REPO_TAG "r21.02" CACHE STRING "Tag for triton-inference-server/common repo")
+set(TRITON_BACKEND_REPO_TAG "r22.03" CACHE STRING "Tag for triton-inference-server/backend repo")
+set(TRITON_CORE_REPO_TAG "r22.03" CACHE STRING "Tag for triton-inference-server/core repo")
+set(TRITON_COMMON_REPO_TAG "r22.03" CACHE STRING "Tag for triton-inference-server/common repo")
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
+
+set(BUILD_MULTI_GPU "ON")
+message("-- Enable BUILD_MULTI_GPU")
+set(USE_TRITONSERVER_DATATYPE "ON")
+message("-- Enable USE_TRITONSERVER_DATATYPE")
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
@@ -59,6 +64,11 @@ message(STATUS "Found MPI (include: ${MPI_INCLUDE_DIRS}, library: ${MPI_LIBRARIE
 if (${CUDA_VERSION} GREATER_EQUAL 11.0)
   message(STATUS "Add DCUDA11_MODE")
   add_definitions("-DCUDA11_MODE")
+endif()
+
+if(${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "11")
+  add_definitions("-DENABLE_BF16")
+  message("CUDA_VERSION ${CUDA_VERSION_MAJOR} is greater or equal than 11, enable -DENABLE_BF16 flag")
 endif()
 
 #
@@ -105,15 +115,15 @@ endif() # TRITON_ENABLE_GPU
 #
 # Shared library implementing the Triton Backend API
 #
-configure_file(src/libtriton_transformer.ldscript libtriton_transformer.ldscript COPYONLY)
+configure_file(src/libtriton_fastertransformer.ldscript libtriton_fastertransformer.ldscript COPYONLY)
 
 add_library(
-  triton-transformer-backend SHARED
-  src/libtransformer.cc
+  triton-fastertransformer-backend SHARED
+  src/libfastertransformer.cc
 )
 
 add_library(
-  TritonTransformerBackend::triton-transformer-backend ALIAS triton-transformer-backend
+  TritonFasterTransformerBackend::triton-fastertransformer-backend ALIAS triton-fastertransformer-backend
 )
 
 #find_package(CUDAToolkit REQUIRED)
@@ -127,45 +137,46 @@ add_definitions("-DCUDA11_MODE")
 
 set(CUDA_PATH ${CUDA_TOOLKIT_ROOT_DIR})
 
-target_compile_definitions(triton-transformer-backend
+target_compile_definitions(triton-fastertransformer-backend
   PUBLIC
   USE_TRITONSERVER_DATATYPE
-  BUILD_GPT)
+  BUILD_MULTI_GPU)
 
 target_include_directories(
-  triton-transformer-backend
+  triton-fastertransformer-backend
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
-#  ${CMAKE_CURRENT_SOURCE_DIR}/test
   ${TRITON_PYTORCH_INCLUDE_PATHS}
   ${Python3_INCLUDE_DIRS}
   ${MPI_INCLUDE_PATH}
   ${repo-ft_SOURCE_DIR}
+  ${repo-core_SOURCE_DIR}/include
   )
 
 target_link_directories(
-  triton-transformer-backend
+  triton-fastertransformer-backend
   PRIVATE
   ${CUDA_PATH}/lib64
   ${MPI_Libraries}
+  /usr/local/mpi/lib
   )
 
-target_compile_features(triton-transformer-backend PRIVATE cxx_std_14)
+target_compile_features(triton-fastertransformer-backend PRIVATE cxx_std_14)
 target_compile_options(
-  triton-transformer-backend PRIVATE
+  triton-fastertransformer-backend PRIVATE
   $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:GNU>>:
-    -Wall -Wextra -Wno-unused-parameter -Wno-type-limits -Werror>
+    -Wall -Wextra -Wno-unused-parameter -Wno-type-limits >#-Werror>
 )
 
 if(${TRITON_ENABLE_GPU})
   target_compile_definitions(
-    triton-transformer-backend
+    triton-fastertransformer-backend
     PRIVATE TRITON_ENABLE_GPU=1
   )
 endif() # TRITON_ENABLE_GPU
 
 set_target_properties(
-  triton-transformer-backend
+  triton-fastertransformer-backend
   PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     OUTPUT_NAME triton_fastertransformer
@@ -173,14 +184,14 @@ set_target_properties(
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH_USE_LINK_PATH FALSE
     INSTALL_RPATH "$\{ORIGIN\}"
-    LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libtriton_transformer.ldscript
-    LINK_FLAGS "-Wl,--no-as-needed,--version-script libtriton_transformer.ldscript"
+    LINK_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libtriton_fastertransformer.ldscript
+    LINK_FLAGS "-Wl,--no-as-needed,--version-script libtriton_fastertransformer.ldscript"
 )
 
 # Need to turn off unused-but-set-variable due to Torchvision
 # Need to turn off unknown-pragmas due to ATen OpenMP
 set_target_properties(
-  triton-transformer-backend
+  triton-fastertransformer-backend
   PROPERTIES COMPILE_FLAGS
     "-Wno-unknown-pragmas -Wno-unused-but-set-variable"
 )
@@ -191,7 +202,7 @@ FOREACH(p ${TRITON_PYTORCH_LIB_PATHS})
 ENDFOREACH(p)
 
 target_link_libraries(
-  triton-transformer-backend
+  triton-fastertransformer-backend
   PRIVATE
     triton-core-serverapi  # from repo-core
     triton-core-backendapi # from repo-core
@@ -201,32 +212,15 @@ target_link_libraries(
     ${TRITON_PYTORCH_LDFLAGS}
     ${NCCL_LIBRARIES}
     ${MPI_LIBRARIES}
-    #-ltorch
-    #-ltorch_cpu
-    #-ltorch_cuda
-    #-ltorchvision
-    #-lc10
-    #-lc10_cuda
-    #-lmkl_core
-    #-lmkl_gnu_thread
-    #-lmkl_intel_lp64
-    #-lmkl_avx2
-    #-lmkl_def
-    #-liomp5
-    #-lmkl_intel_thread
-    #-lmkl_vml_def
-    #-lmkl_rt
     -lcublas
     -lcublasLt
     -lcudart
     -lcurand
-    #-lnccl
-    #-lmpi
 )
 
 if(${TRITON_ENABLE_GPU})
   target_link_libraries(
-    triton-transformer-backend
+    triton-fastertransformer-backend
     PRIVATE
       CUDA::cudart
   )
@@ -236,38 +230,38 @@ endif() # TRITON_ENABLE_GPU
 # Install
 #
 include(GNUInstallDirs)
-set(INSTALL_CONFIGDIR ${CMAKE_INSTALL_LIBDIR}/cmake/TritonTransformerBackend)
+set(INSTALL_CONFIGDIR ${CMAKE_INSTALL_LIBDIR}/cmake/TritonFasterTransformerBackend)
 
 install(
   TARGETS
-    triton-transformer-backend
+    triton-fastertransformer-backend
   EXPORT
-    triton-transformer-backend-targets
+    triton-fastertransformer-backend-targets
   LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/fastertransformer
   ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/fastertransformer
 )
 
 install(
   EXPORT
-    triton-transformer-backend-targets
+    triton-fastertransformer-backend-targets
   FILE
-    TritonTransformerBackendTargets.cmake
+    TritonFasterTransformerBackendTargets.cmake
   NAMESPACE
-    TritonTransformerBackend::
+    TritonFasterTransformerBackend::
   DESTINATION
     ${INSTALL_CONFIGDIR}
 )
 
 include(CMakePackageConfigHelpers)
 configure_package_config_file(
-  ${CMAKE_CURRENT_LIST_DIR}/cmake/TritonTransformerBackendConfig.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/TritonTransformerBackendConfig.cmake
+  ${CMAKE_CURRENT_LIST_DIR}/cmake/TritonFasterTransformerBackendConfig.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/TritonFasterTransformerBackendConfig.cmake
   INSTALL_DESTINATION ${INSTALL_CONFIGDIR}
 )
 
 install(
   FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/TritonTransformerBackendConfig.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/TritonFasterTransformerBackendConfig.cmake
   DESTINATION ${INSTALL_CONFIGDIR}
 )
 
@@ -275,9 +269,9 @@ install(
 # Export from build tree
 #
 export(
-  EXPORT triton-transformer-backend-targets
-  FILE ${CMAKE_CURRENT_BINARY_DIR}/TritonTransformerBackendTargets.cmake
-  NAMESPACE TritonTransformerBackend::
+  EXPORT triton-fastertransformer-backend-targets
+  FILE ${CMAKE_CURRENT_BINARY_DIR}/TritonFasterTransformerBackendTargets.cmake
+  NAMESPACE TritonFasterTransformerBackend::
 )
 
-export(PACKAGE TritonTransformerBackend)
+export(PACKAGE TritonFasterTransformerBackend)

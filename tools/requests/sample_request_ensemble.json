@@ -1,0 +1,103 @@
+{
+    "config": {
+        "model_name": "ensemble"
+    },
+    "request": [
+        {
+            "name": "INPUT_0",
+            "data": [["Ludwig Ferdinand Huber wrote the text for a book with"],
+                ["An animal rendering and recycling plant dumped illegal amounts of"],
+                ["Malika Louback believes her three engineering degrees make her"],
+                ["Racer's hurricane in 1837 was named after"],
+                ["Jason Robertson is only the second Filipino American to"],
+                ["The 1886 song of thanks \"Ein Danklied sei dem Herrn\" was performed at"],
+                ["Fori Nehru founded an employment campaign in 1947 to sell"],
+                ["in the 1960s Tennessee had a radio station named after the"]],
+            "dtype": "object"
+        },
+        {
+            "name": "INPUT_1",
+            "data": [[24], [24], [24], [24], [24], [24], [24], [24]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "beam_search_diversity_rate",
+            "data": [[0], [0], [0], [0], [0], [0], [0], [0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "temperature",
+            "data": [[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "len_penalty",
+            "data": [[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "repetition_penalty",
+            "data": [[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "random_seed",
+            "data": [[0], [0], [0], [0], [0], [0], [0], [0]],
+            "dtype": "int32"
+        },
+        {
+            "name": "is_return_log_probs",
+            "data": [[true], [true], [true], [true], [true], [true], [true], [true]],
+            "dtype": "bool"
+        },
+        {
+            "name": "beam_width",
+            "data": [[1], [1], [1], [1], [1], [1], [1], [1]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "runtime_top_k",
+            "data": [[1], [1], [1], [1], [1], [1], [1], [1]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "runtime_top_p",
+            "data": [[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "start_id",
+            "data": [[50256], [50256], [50256], [50256], [50256], [50256], [50256], [50256]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "end_id",
+            "data": [[50256], [50256], [50256], [50256], [50256], [50256], [50256], [50256]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "INPUT_2",
+            "data": [["title, title,German, German"],
+                [" into the river"],
+                [""],
+                [""],
+                [""],
+                [""],
+                [""],
+                [""]],
+            "dtype": "object"
+        },
+        {
+            "name": "INPUT_3",
+            "data": [[""],
+                [""],
+                [""],
+                [""],
+                [""],
+                [" Olympic Games"],
+                [""],
+                [""]],
+            "dtype": "object"
+        }
+    ]
+}

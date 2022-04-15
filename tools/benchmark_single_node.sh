@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -29,14 +29,15 @@
 MODEL_FILENAME=gpt3_89B
 BATCH_SIZE=16
 INPUT_LEN=512
-OUTPUT_LEN=16
+OUTPUT_LEN=32
 SIZE_PER_HEAD=128
 HEAD_NUM=96
 VOCAB_SIZE=51200
 NUM_DECODER_LAYERS=48
 NUM_RUNS=1
 SERVER_TIMEOUT=420
-LAYER_PARA_SIZE=1 # This script only support single node, so keep this to be 1
+TENSOR_PARA_SIZE=8
+PIPELINE_PARA_SIZE=1 # This script only support single node, so keep this to be 1
 source $WORKSPACE/common/util.sh
 
 set +x
@@ -45,7 +46,7 @@ set +x
 # TODO: Add TP para, now it only supports TP=8
 function usage
 {
-    echo "usage: ./benchmark.sh [[-m model_filename ] | [-b batch_size] | [-h] | [-c compile] | [-i input_len] | [-o output_len] | [-l layer_para_size] | [-n num_decoder_layers]"
+    echo "usage: ./benchmark.sh [[-m model_filename ] | [-b batch_size] | [-h] | [-c compile] | [-i input_len] | [-o output_len] | [-l pipeline_para_size] | [-t_p tensor_para_size] | [-n num_decoder_layers]"
     echo "-m | --model_filename choose which model to run (gpt_89B, gpt_175B)"
     echo "-b | --batch_size"
     echo "-c | --compile recompile triton backend"
@@ -56,6 +57,7 @@ function usage
     echo "-n | --num_runs"
     echo "-h_n | --head_num"
     echo "-s_h | --size_per_head"
+    echo "-t_p | --tensor_para_size"
     echo "-h | --help  This message"
 }
 
@@ -93,6 +95,9 @@ while [ "$1" != "" ]; do
         -s_h | --size_per_head)     shift
 				    SIZE_PER_HEAD=$1
 				    ;;
+        -t_p | --tensor_para_size)  shift
+	                            TENSOR_PARA_SIZE=$1
+                                    ;;
         -h | --help )               shift
 				    usage
             exit 1
@@ -106,6 +111,7 @@ done
 MODEL_NAME=$MODEL_FILENAME
 
 MAX_SEQ_LEN=$(( $INPUT_LEN + $OUTPUT_LEN ))
+INTER_SIZE=$(($HEAD_NUM * $SIZE_PER_HEAD * 4))
 
 if [ "$COMPILE" = true ] ; then
     # Build
@@ -115,22 +121,21 @@ if [ "$COMPILE" = true ] ; then
     fi
     
     (cd $WORKSPACE/fastertransformer_backend/build/ && \
-        cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DSM=80 .. && \
+        cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 .. && \
         make -j12)
     set +e
-
-    cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so \
-    $WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so \
-    /opt/tritonserver/backends/fastertransformer
 fi
 
-
+# Install
+cp $WORKSPACE/fastertransformer_backend/build/libtriton_fastertransformer.so \
+$WORKSPACE/fastertransformer_backend/build/lib/libtransformer-shared.so \
+/opt/tritonserver/backends/fastertransformer
 
 RET=0
 #rm -rf *.log
 
 SERVER=/opt/tritonserver/bin/tritonserver
-MODEL_PATH=$WORKSPACE/fastertransformer_backend/all_models
+MODEL_PATH=$WORKSPACE/fastertransformer_backend/all_models/gpt
 SERVER_ARGS="--model-repositor=$MODEL_PATH"
 SERVER_LOG="./${MODEL_FILENAME}_inference_server.log"
 
@@ -143,26 +148,81 @@ default_model_filename: "'"${MODEL_FILENAME}"'"
 max_batch_size: '"${BATCH_SIZE}"'
 input [
   {
-    name: "INPUT_ID"
+    name: "input_ids"
     data_type: TYPE_UINT32
     dims: [ -1 ]
   },
   {
-    name: "REQUEST_INPUT_LEN"
+    name: "input_lengths"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
   },
   {
-    name: "REQUEST_OUTPUT_LEN"
+    name: "request_output_len"
+    data_type: TYPE_UINT32
+    dims: [ -1 ]
+  },
+  {
+    name: "runtime_top_k"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "runtime_top_p"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "beam_search_diversity_rate"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+      name: "temperature"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "len_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "repetition_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "random_seed"
+      data_type: TYPE_INT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "is_return_log_probs"
+      data_type: TYPE_BOOL
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "beam_width"
+      data_type: TYPE_UINT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
   }
 ]
 output [
   {
-    name: "OUTPUT0"
+    name: "output_ids"
     data_type: TYPE_UINT32
-    dims: [ -1 ]
+    dims: [ -1, -1 ]
   }
 ]
 instance_group [
@@ -171,35 +231,16 @@ instance_group [
     kind : KIND_CPU
   }
 ]
-
-parameters {
-  key: "candidate_num"
-  value: {
-    string_value: "0"
-  }
-}
-parameters {
-  key: "probability_threshold"
-  value: {
-    string_value: "0.9"
-  }
-}
 parameters {
   key: "tensor_para_size"
   value: {
-    string_value: "8"
+    string_value: "'"${TENSOR_PARA_SIZE}"'"
   }
 }
 parameters {
-  key: "layer_para_size"
+  key: "pipeline_para_size"
   value: {
-    string_value: "'"${LAYER_PARA_SIZE}"'"
-  }
-}
-parameters {
-  key: "layer_para_batch_size"
-  value: {
-    string_value: "'"${BATCH_SIZE}"'"
+    string_value: "'"${PIPELINE_PARA_SIZE}"'"
   }
 }
 parameters {
@@ -227,9 +268,27 @@ parameters {
   }
 }
 parameters {
+  key: "inter_size"
+  value: {
+    string_value: "'"${INTER_SIZE}"'"
+  }
+}
+parameters {
   key: "vocab_size"
   value: {
     string_value: "'"${VOCAB_SIZE}"'"
+  }
+}
+parameters {
+  key: "start_id"
+  value: {
+    string_value: "50256"
+  }
+}
+parameters {
+  key: "end_id"
+  value: {
+    string_value: "50256"
   }
 }
 parameters {
@@ -245,27 +304,21 @@ parameters {
   }
 }
 parameters {
-  key: "batch_size"
+  key: "model_type"
   value: {
-    string_value: "'"${BATCH_SIZE}"'"
+    string_value: "GPT"
   }
 }
 parameters {
-  key: "is_fuse_QKV"
+  key: "model_checkpoint_path"
   value: {
-    string_value: "1"
+    string_value: "/workspace/fastertransformer_backend/all_models/fastertransformer/1/8-gpu"
   }
 }
 parameters {
-  key: "temperature"
+  key: "int8_mode"
   value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "repetition_penalty"
-  value: {
-    string_value: "1.0"
+    string_value: "0"
   }
 }
 ' > config.pbtxt)
@@ -295,12 +348,14 @@ CLIENT_LOG="./${MODEL_FILENAME}_client.log"
 
 for PROTOCOL in http; do
     set +e
-    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -n $NUM_RUNS -v -r 2> err.log > $CLIENT_LOG
+    python $CLIENT_PY -i $PROTOCOL -b $BATCH_SIZE -s $INPUT_LEN -o $OUTPUT_LEN -n $NUM_RUNS -v -r -w 2> err.log > $CLIENT_LOG
     if [ $? -ne 0 ]; then
         RET=1
     fi
     set -e
 done
+
+#perf_analyzer -m fastertransformer -b 1 --input-data /workspace/data.json --concurrency-range 128:128 --measurement-interval 100000 2>&1 | tee $CLIENT_LOG
 
 # latency will be logged to last line
 tail -n 2 $CLIENT_LOG
