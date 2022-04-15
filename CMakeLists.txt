@@ -1,4 +1,4 @@
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -36,15 +36,18 @@ option(TRITON_ENABLE_STATS "Include statistics collections in backend" ON)
 set(TRITON_PYTORCH_INCLUDE_PATHS "" CACHE PATH "Paths to Torch includes")
 set(TRITON_PYTORCH_LIB_PATHS "" CACHE PATH "Paths to Torch libraries")
 
-set(TRITON_BACKEND_REPO_TAG "r21.02" CACHE STRING "Tag for triton-inference-server/backend repo")
-set(TRITON_CORE_REPO_TAG "r21.02" CACHE STRING "Tag for triton-inference-server/core repo")
-set(TRITON_COMMON_REPO_TAG "r21.02" CACHE STRING "Tag for triton-inference-server/common repo")
+set(TRITON_BACKEND_REPO_TAG "r22.03" CACHE STRING "Tag for triton-inference-server/backend repo")
+set(TRITON_CORE_REPO_TAG "r22.03" CACHE STRING "Tag for triton-inference-server/core repo")
+set(TRITON_COMMON_REPO_TAG "r22.03" CACHE STRING "Tag for triton-inference-server/common repo")
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(BUILD_GPT "ON")
+set(BUILD_MULTI_GPU "ON")
+message("-- Enable BUILD_MULTI_GPU")
+set(USE_TRITONSERVER_DATATYPE "ON")
+message("-- Enable USE_TRITONSERVER_DATATYPE")
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
@@ -61,6 +64,11 @@ message(STATUS "Found MPI (include: ${MPI_INCLUDE_DIRS}, library: ${MPI_LIBRARIE
 if (${CUDA_VERSION} GREATER_EQUAL 11.0)
   message(STATUS "Add DCUDA11_MODE")
   add_definitions("-DCUDA11_MODE")
+endif()
+
+if(${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "11")
+  add_definitions("-DENABLE_BF16")
+  message("CUDA_VERSION ${CUDA_VERSION_MAJOR} is greater or equal than 11, enable -DENABLE_BF16 flag")
 endif()
 
 #
@@ -91,8 +99,8 @@ FetchContent_Declare(
 )
 FetchContent_Declare(
   repo-ft
-  GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer
-  GIT_TAG dev/v5.0_beta
+  GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer.git
+  GIT_TAG main
   GIT_SHALLOW ON
 )
 FetchContent_MakeAvailable(repo-common repo-core repo-backend repo-ft)
@@ -132,17 +140,17 @@ set(CUDA_PATH ${CUDA_TOOLKIT_ROOT_DIR})
 target_compile_definitions(triton-fastertransformer-backend
   PUBLIC
   USE_TRITONSERVER_DATATYPE
-  BUILD_GPT)
+  BUILD_MULTI_GPU)
 
 target_include_directories(
   triton-fastertransformer-backend
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
-#  ${CMAKE_CURRENT_SOURCE_DIR}/test
   ${TRITON_PYTORCH_INCLUDE_PATHS}
   ${Python3_INCLUDE_DIRS}
   ${MPI_INCLUDE_PATH}
   ${repo-ft_SOURCE_DIR}
+  ${repo-core_SOURCE_DIR}/include
   )
 
 target_link_directories(

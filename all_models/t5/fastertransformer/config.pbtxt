@@ -1,5 +1,5 @@
 
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -31,26 +31,132 @@ default_model_filename: "t5"
 max_batch_size: 128
 input [
   {
-    name: "INPUT_ID"
+    name: "input_ids"
     data_type: TYPE_UINT32
     dims: [ -1 ]
   },
   {
-    name: "REQUEST_INPUT_LEN"
+    name: "sequence_length"
     data_type: TYPE_UINT32
-    dims: [ -1 ]
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "runtime_top_k"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "runtime_top_p"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "beam_search_diversity_rate"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "temperature"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "len_penalty"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "repetition_penalty"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "random_seed"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "is_return_log_probs"
+    data_type: TYPE_BOOL
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "max_output_len"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "beam_width"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "start_id"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "end_id"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "bad_words_list"
+    data_type: TYPE_INT32
+    dims: [ 2, -1 ]
+    optional: true
+  },
+  {
+    name: "stop_words_list"
+    data_type: TYPE_INT32
+    dims: [ 2, -1 ]
+    optional: true
   }
 ]
 output [
   {
-    name: "OUTPUT0"
+    name: "output_ids"
     data_type: TYPE_UINT32
     dims: [ -1, -1 ]
   },
   {
-    name: "OUTPUT1"
+    name: "sequence_length"
     data_type: TYPE_UINT32
     dims: [ -1 ]
+  },
+  {
+    name: "cum_log_probs"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "output_log_probs"
+    data_type: TYPE_FP32
+    dims: [ -1, -1 ]
   }
 ]
 instance_group [
@@ -60,21 +166,9 @@ instance_group [
   }
 ]
 parameters {
-  key: "top_k"
-  value: {
-    string_value: "1"
-  }
-}
-parameters {
-  key: "top_p"
-  value: {
-    string_value: "0.0"
-  }
-}
-parameters {
   key: "tensor_para_size"
   value: {
-    string_value: "1"
+    string_value: "2"
   }
 }
 parameters {
@@ -84,55 +178,13 @@ parameters {
   }
 }
 parameters {
-  key: "max_encoder_seq_len"
-  value: {
-    string_value: "512"
-  }
-}
-parameters {
-  key: "max_decoding_seq_len"
-  value: {
-    string_value: "528"
-  }
-}
-parameters {
   key: "is_half"
   value: {
     string_value: "1"
   }
 }
 parameters {
-  key: "beam_width"
-  value: {
-    string_value: "1"
-  }
-}
-parameters {
-  key: "temperature"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "repetition_penalty"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "len_penalty"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "beam_search_diversity_rate"
-  value: {
-    string_value: "0.0"
-  }
-}
-parameters {
-  key: "int8_mode"
+  key: "enable_custom_all_reduce"
   value: {
     string_value: "0"
   }
@@ -146,7 +198,7 @@ parameters {
 parameters {
   key: "model_checkpoint_path"
   value: {
-    string_value: "t5_small_1_gpu"
+    string_value: "../all_models/t5/fastertransformer/1/"
   }
 }
 

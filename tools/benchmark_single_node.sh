@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -148,24 +148,79 @@ default_model_filename: "'"${MODEL_FILENAME}"'"
 max_batch_size: '"${BATCH_SIZE}"'
 input [
   {
-    name: "INPUT_ID"
+    name: "input_ids"
     data_type: TYPE_UINT32
-    dims: [ -1, -1 ]
+    dims: [ -1 ]
   },
   {
-    name: "REQUEST_INPUT_LEN"
+    name: "input_lengths"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
   },
   {
-    name: "REQUEST_OUTPUT_LEN"
+    name: "request_output_len"
+    data_type: TYPE_UINT32
+    dims: [ -1 ]
+  },
+  {
+    name: "runtime_top_k"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "runtime_top_p"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "beam_search_diversity_rate"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+      name: "temperature"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "len_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "repetition_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "random_seed"
+      data_type: TYPE_INT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "is_return_log_probs"
+      data_type: TYPE_BOOL
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "beam_width"
+      data_type: TYPE_UINT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
   }
 ]
 output [
   {
-    name: "OUTPUT0"
+    name: "output_ids"
     data_type: TYPE_UINT32
     dims: [ -1, -1 ]
   }
@@ -177,27 +232,9 @@ instance_group [
   }
 ]
 parameters {
-  key: "top_k"
-  value: {
-    string_value: "0"
-  }
-}
-parameters {
-  key: "top_p"
-  value: {
-    string_value: "0.9"
-  }
-}
-parameters {
   key: "tensor_para_size"
   value: {
     string_value: "'"${TENSOR_PARA_SIZE}"'"
-  }
-}
-parameters {
-  key: "max_input_len"
-  value: {
-    string_value: "'"${INPUT_LEN}"'"
   }
 }
 parameters {
@@ -267,36 +304,6 @@ parameters {
   }
 }
 parameters {
-  key: "beam_width"
-  value: {
-    string_value: "1"
-  }
-}
-parameters {
-  key: "temperature"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "repetition_penalty"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "len_penalty"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "beam_search_diversity_rate"
-  value: {
-    string_value: "0.0"
-  }
-}
-parameters {
   key: "model_type"
   value: {
     string_value: "GPT"
@@ -305,7 +312,7 @@ parameters {
 parameters {
   key: "model_checkpoint_path"
   value: {
-    string_value: "/workspace/fastertransformer_backend/all_models/fastertransformer/1/'"${TENSOR_PARA_SIZE}"'-gpu"
+    string_value: "/workspace/fastertransformer_backend/all_models/fastertransformer/1/8-gpu"
   }
 }
 parameters {

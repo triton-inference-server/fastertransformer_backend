@@ -1,5 +1,5 @@
 echo '
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -31,24 +31,79 @@ default_model_filename: "gpt3_345M"
 max_batch_size: 128
 input [
   {
-    name: "INPUT_ID"
+    name: "input_ids"
     data_type: TYPE_UINT32
-    dims: [ -1, -1 ]
+    dims: [ -1 ]
   },
   {
-    name: "REQUEST_INPUT_LEN"
+    name: "input_lengths"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
   },
   {
-    name: "REQUEST_OUTPUT_LEN"
+    name: "request_output_len"
+    data_type: TYPE_UINT32
+    dims: [ -1 ]
+  },
+  {
+    name: "runtime_top_k"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "runtime_top_p"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "beam_search_diversity_rate"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+      name: "temperature"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "len_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "repetition_penalty"
+      data_type: TYPE_FP32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "random_seed"
+      data_type: TYPE_INT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "is_return_log_probs"
+      data_type: TYPE_BOOL
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
+  },
+  {
+      name: "beam_width"
+      data_type: TYPE_UINT32
+      dims: [ 1 ]
+      reshape: { shape: [ ] }
   }
 ]
 output [
   {
-    name: "OUTPUT0"
+    name: "output_ids"
     data_type: TYPE_UINT32
     dims: [ -1, -1 ]
   }
@@ -60,18 +115,6 @@ instance_group [
   }
 ]
 parameters {
-  key: "top_k"
-  value: {
-    string_value: "1"
-  }
-}
-parameters {
-  key: "top_p"
-  value: {
-    string_value: "0.0"
-  }
-}
-parameters {
   key: "tensor_para_size"
   value: {
     string_value: "1"
@@ -81,12 +124,6 @@ parameters {
   key: "pipeline_para_size"
   value: {
     string_value: "1"
-  }
-}
-parameters {
-  key: "max_input_len"
-  value: {
-    string_value: "512"
   }
 }
 parameters {
@@ -148,40 +185,6 @@ parameters {
   value: {
     string_value: "gpt3_345M"
   }
-}
-parameters {
-  key: "beam_width"
-  value: {
-    string_value: "1"
-  }
-}
-parameters {
-  key: "temperature"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "repetition_penalty"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "len_penalty"
-  value: {
-    string_value: "1.0"
-  }
-}
-parameters {
-  key: "beam_search_diversity_rate"
-  value: {
-    string_value: "0.0"
-  }
-}
-dynamic_batching {
-  preferred_batch_size: [4, 8]
-  max_queue_delay_microseconds: 200000
 }
 parameters {
   key: "model_type"

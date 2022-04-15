@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -155,7 +155,7 @@ if __name__ == '__main__':
 
     tensor_para_size = 1
     while (tensor_para_size <= 8):
-        b = Benchmark(f"350M_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=64, max_batch_size=64, vocab_size=50304, tensor_para_size=tensor_para_size)
+        b = Benchmark(f"350M_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=24, num_header=16, size_per_header=64, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
         b.start()
         b.to_csv()
         tensor_para_size = tensor_para_size * 2
@@ -172,41 +172,37 @@ if __name__ == '__main__':
     # b.start()
     # b.to_csv()
 
-    # tensor_para_size = 1
-    # while (tensor_para_size <= 8):
-    #     b = Benchmark(f"5.11B_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=24, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
-    #     b.start()
-    #     b.to_csv()
-    #     tensor_para_size = tensor_para_size * 2
+    tensor_para_size = 1
+    while (tensor_para_size <= 8):
+        b = Benchmark(f"5.11B_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=24, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
+        b.start()
+        b.to_csv()
+        tensor_para_size = tensor_para_size * 2
 
-    # tensor_para_size = 1
-    # while (tensor_para_size <= 8):
-    #     b = Benchmark(f"6.7B_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
-    #     b.start()
-    #     b.to_csv()
-    #     tensor_para_size = tensor_para_size * 2
+    tensor_para_size = 1
+    while (tensor_para_size <= 8):
+        b = Benchmark(f"6.7B_TP_{tensor_para_size}", 512, 32, 10, num_decoder_layer=32, num_header=32, size_per_header=128, max_batch_size=64, vocab_size=51200, tensor_para_size=tensor_para_size)
+        b.start()
+        b.to_csv()
+        tensor_para_size = tensor_para_size * 2
 
-    # b = Benchmark("13B", 512, 32, 10, num_decoder_layer=40, num_header=40, size_per_header=128, max_batch_size=64, vocab_size=51200)
-    # b.start()
-    # b.to_csv()
+    b = Benchmark("13B", 512, 32, 10, num_decoder_layer=40, num_header=40, size_per_header=128, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
 
-    # b = Benchmark("89B", 512, 32 , 10, 48, 96, 128, 64, 51200)
-    # b.start()
-    # b.to_csv()
+    b = Benchmark("89B", 512, 32 , 10, 48, 96, 128, 64, 51200)
+    b.start()
+    b.to_csv()
 
-    # b = Benchmark("175B", 512, 32, 10, num_decoder_layer=96, num_header=96, size_per_header=128, max_batch_size=64, vocab_size=51200)
-    # b.start()
-    # b.to_csv()
+    b = Benchmark("175B", 512, 32, 10, num_decoder_layer=96, num_header=96, size_per_header=128, max_batch_size=64, vocab_size=51200)
+    b.start()
+    b.to_csv()
 
     # # test size_per_header=160
     # #b = Benchmark("272B", 512, 32, 10, num_decoder_layer=96, num_header=96, size_per_header=160, max_batch_size=32, vocab_size=51200)
     # #b.start()
     # #b.to_csv()
 
-    # b = Benchmark("310B", 512, 32, 10, num_decoder_layer=96, num_header=128, size_per_header=128, max_batch_size=1, vocab_size=51200)
-    # b.start()
-    # b.to_csv()
-
-    # b = Benchmark("310B", 512, 32, 10, num_decoder_layer=96, num_header=128, size_per_header=128, max_batch_size=1, vocab_size=51200)
-    # b.start()
-    # b.to_csv()
+    b = Benchmark("310B", 512, 32, 10, num_decoder_layer=96, num_header=128, size_per_header=128, max_batch_size=1, vocab_size=51200)
+    b.start()
+    b.to_csv()

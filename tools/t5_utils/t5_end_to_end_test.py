@@ -1,4 +1,4 @@
-# Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(dir_path + "/../")
 
 from transformers import PreTrainedTokenizerFast
-from transformers import T5ForConditionalGeneration, T5Tokenizer # transformers-4.10.0-py3
+from transformers import T5Tokenizer # transformers-4.10.0-py3
 from utils.recover_bpe import recover_bpe
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
@@ -38,6 +38,13 @@ def bleu_score(pred, ref):
     print("       bleu precisions: {}".format(bleu.precisions))
     print("       bleu sys_len: {}; ref_len: {}".format(bleu.sys_len, bleu.ref_len))
     return bleu
+
+def prepare_tensor(name, input):
+    client_util = httpclient
+    t = client_util.InferInput(
+        name, input.shape, np_to_triton_dtype(input.dtype))
+    t.set_data_from_numpy(input)
+    return t
 
 class TranslationResult(object):
     def __init__(self, name, frame_work):
@@ -58,9 +65,10 @@ def translate(args_dict):
     batch_size = args_dict['batch_size']
     source_file = args_dict["source"]
     tgt_file = args_dict["target"]
+    topk = args_dict['sampling_topk']
+    topp = args_dict['sampling_topp']
+    maximum_output_length = args_dict['maximum_output_length']
 
-    t5_model = T5ForConditionalGeneration.from_pretrained(args_dict['model'])
-    
     tokenizer = T5Tokenizer.from_pretrained(args_dict['model'])
     fast_tokenizer = PreTrainedTokenizerFast.from_pretrained(args_dict['model'])
 
@@ -96,14 +104,40 @@ def translate(args_dict):
                 mem_seq_len = torch.sum(input_token.attention_mask, dim=1).numpy().astype(np.uint32)
                 mem_seq_len = mem_seq_len.reshape([mem_seq_len.shape[0], 1])
 
+                # TODO(bhsueh) should be set to optional inputs in the future
+                runtime_top_k = (topk * np.ones([input_ids.shape[0], 1])).astype(np.uint32)
+                runtime_top_p = topp * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                beam_search_diversity_rate = 0.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                temperature = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                len_penalty = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                repetition_penalty = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                random_seed = 0 * np.ones([input_ids.shape[0], 1]).astype(np.int32)
+                is_return_log_probs = True * np.ones([input_ids.shape[0], 1]).astype(bool)
+                max_output_len = (maximum_output_length * np.ones([input_ids.shape[0], 1])).astype(np.uint32)
+                bad_words_ids = np.array([[[0], [-1]]] * input_ids.shape[0], dtype=np.int32)
+                stop_words_ids = np.array([[[0], [-1]]] * input_ids.shape[0], dtype=np.int32)
+                beam_width = (args_dict['beam_width'] * np.ones([input_ids.shape[0], 1])).astype(np.uint32)
+                start_ids = 0 * np.ones([input_ids.shape[0], 1]).astype(np.uint32)
+                end_ids = 1 * np.ones([input_ids.shape[0], 1]).astype(np.uint32)
+
                 inputs = [
-                    client_util.InferInput("INPUT_ID", input_ids.shape,
-                                        np_to_triton_dtype(input_ids.dtype)),
-                    client_util.InferInput("REQUEST_INPUT_LEN", mem_seq_len.shape,
-                                        np_to_triton_dtype(mem_seq_len.dtype))
+                    prepare_tensor("input_ids", input_ids),
+                    prepare_tensor("sequence_length", mem_seq_len),
+                    prepare_tensor("runtime_top_k", runtime_top_k),
+                    prepare_tensor("runtime_top_p", runtime_top_p),
+                    prepare_tensor("beam_search_diversity_rate", beam_search_diversity_rate),
+                    prepare_tensor("temperature", temperature),
+                    prepare_tensor("len_penalty", len_penalty),
+                    prepare_tensor("repetition_penalty", repetition_penalty),
+                    prepare_tensor("random_seed", random_seed),
+                    prepare_tensor("is_return_log_probs", is_return_log_probs),
+                    prepare_tensor("max_output_len", max_output_len),
+                    prepare_tensor("beam_width", beam_width),
+                    prepare_tensor("start_id", start_ids),
+                    prepare_tensor("end_id", end_ids),
+                    prepare_tensor("bad_words_list", bad_words_ids),
+                    prepare_tensor("stop_words_list", stop_words_ids),
                 ]
-                inputs[0].set_data_from_numpy(input_ids)
-                inputs[1].set_data_from_numpy(mem_seq_len)
                 
                 print("set request")
                 result = client.infer(model_name, inputs)
@@ -111,8 +145,10 @@ def translate(args_dict):
                 results.append(result)
                 
             for result in results:
-                ft_decoding_outputs = result.as_numpy("OUTPUT0")
-                ft_decoding_seq_lens = result.as_numpy("OUTPUT1")
+                ft_decoding_outputs = result.as_numpy("output_ids")
+                ft_decoding_seq_lens = result.as_numpy("sequence_length")
+                cum_log_probs = result.as_numpy("cum_log_probs")
+                output_log_probs = result.as_numpy("output_log_probs")
                 
                 translation_result_list[i].batch_ids_list.append(ft_decoding_outputs)
                 translation_result_list[i].batch_seq_len_list.append(ft_decoding_seq_lens)
@@ -142,12 +178,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-batch', '--batch_size', type=int, default=1, metavar='NUMBER',
                         help='batch size (default: 1)')
-    parser.add_argument("--source", default="./_deps/repo-ft-src/examples/pytorch/decoding/utils/translation/test.en",
+    parser.add_argument('-max_output_len', '--maximum_output_length', type=int, default=128, metavar='NUMBER',
+                        help='maximum output length (default: 128)')
+    parser.add_argument("--source", default="../tools/t5_utils/test.en",
                         help="Path to the source file.")
-    parser.add_argument("--target", default="./_deps/repo-ft-src/examples/pytorch/decoding/utils/translation/test.de",
+    parser.add_argument("--target", default="../tools/t5_utils/test.de",
                         help="Path to the target file.")
     parser.add_argument('-model', '--model', type=str, default="t5-small", metavar='STRING',
                         help='T5 model size.', choices=["t5-small", "t5-base", "t5-large", "t5-3b", "t5-11b"])
+    parser.add_argument('-beam', '--beam_width', type=int, default=1, metavar='NUMBER',
+                        help='Beam width for beam search. If setting 1, then using sampling.')
+    parser.add_argument('-topk', '--sampling_topk', type=int, default=1, metavar='NUMBER',
+                        help='Candidate (k) value of top k sampling in decoding. Default is 1.')
+    parser.add_argument('-topp', '--sampling_topp', type=float, default=0.0, metavar='NUMBER',
+                        help='Probability (p) value of top p sampling in decoding. Default is 0.0. ')
     args = parser.parse_args()
 
     translate(vars(args))

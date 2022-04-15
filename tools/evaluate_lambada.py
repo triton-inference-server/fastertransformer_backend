@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -45,24 +45,77 @@ END_ID = 50256
 MAX_TEST_GRAM = 4
 
 
-def send_requests(url, input_start_ids, input_len, output_len, verbose, model_name="fastertransformer"):
+def send_requests(url, input_start_ids, input_len, output_len, verbose, flags, model_name="fastertransformer"):
     with client_util.InferenceServerClient(url,
                                            verbose=verbose) as client:
         input_data = input_start_ids
+        runtime_top_k = (flags.topk * np.ones([input_start_ids.shape[0], 1])).astype(np.uint32)
+        runtime_top_p = flags.topp * np.ones([input_start_ids.shape[0], 1]).astype(np.float32)
+        beam_search_diversity_rate = 0.0 * np.ones([input_start_ids.shape[0], 1]).astype(np.float32)
+        temperature = 1.0 * np.ones([input_start_ids.shape[0], 1]).astype(np.float32)
+        len_penalty = 1.0 * np.ones([input_start_ids.shape[0], 1]).astype(np.float32)
+        repetition_penalty = 1.0 * np.ones([input_start_ids.shape[0], 1]).astype(np.float32)
+        random_seed = 0 * np.ones([input_start_ids.shape[0], 1]).astype(np.int32)
+        is_return_log_probs = True * np.ones([input_start_ids.shape[0], 1]).astype(np.bool)
+        beam_width = (flags.beam_width * np.ones([input_start_ids.shape[0], 1])).astype(np.uint32)
+        start_ids = 50256 * np.ones([input_start_ids.shape[0], 1]).astype(np.uint32)
+        end_ids = 50256 * np.ones([input_start_ids.shape[0], 1]).astype(np.uint32)
+        bad_words_list = np.concatenate([np.zeros([input_start_ids.shape[0], 1, 1]).astype(np.int32), (-1 * np.ones([input_start_ids.shape[0], 1, 1])).astype(np.int32)], axis=1)
+        stop_word_list = np.concatenate([np.zeros([input_start_ids.shape[0], 1, 1]).astype(np.int32), (-1 * np.ones([input_start_ids.shape[0], 1, 1])).astype(np.int32)], axis=1)
+        
         inputs = [
-            client_util.InferInput("INPUT_ID", input_data.shape,
-                                   np_to_triton_dtype(input_data.dtype)),
-            client_util.InferInput("REQUEST_INPUT_LEN", input_len.shape,
-                                   np_to_triton_dtype(input_len.dtype)),
-            client_util.InferInput("REQUEST_OUTPUT_LEN", output_len.shape,
-                                   np_to_triton_dtype(output_len.dtype))
+                client_util.InferInput("input_ids", input_data.shape,
+                                       np_to_triton_dtype(input_data.dtype)),
+                client_util.InferInput("input_lengths", input_len.shape,
+                                       np_to_triton_dtype(input_len.dtype)),
+                client_util.InferInput("request_output_len", output_len.shape,
+                                       np_to_triton_dtype(output_len.dtype)),
+                client_util.InferInput("runtime_top_k", runtime_top_k.shape,
+                                       np_to_triton_dtype(runtime_top_k.dtype)),
+                client_util.InferInput("runtime_top_p", runtime_top_p.shape,
+                                       np_to_triton_dtype(runtime_top_p.dtype)),
+                client_util.InferInput("beam_search_diversity_rate", beam_search_diversity_rate.shape,
+                                       np_to_triton_dtype(beam_search_diversity_rate.dtype)),
+                client_util.InferInput("temperature", temperature.shape,
+                                       np_to_triton_dtype(temperature.dtype)),
+                client_util.InferInput("len_penalty", len_penalty.shape,
+                                       np_to_triton_dtype(len_penalty.dtype)),
+                client_util.InferInput("repetition_penalty", repetition_penalty.shape,
+                                       np_to_triton_dtype(repetition_penalty.dtype)),
+                client_util.InferInput("random_seed", random_seed.shape,
+                                       np_to_triton_dtype(random_seed.dtype)),
+                client_util.InferInput("is_return_log_probs", is_return_log_probs.shape,
+                                       np_to_triton_dtype(is_return_log_probs.dtype)),
+                client_util.InferInput("beam_width", beam_width.shape,
+                                       np_to_triton_dtype(beam_width.dtype)),
+                client_util.InferInput("start_id", start_ids.shape,
+                                       np_to_triton_dtype(start_ids.dtype)),
+                client_util.InferInput("end_id", end_ids.shape,
+                                       np_to_triton_dtype(end_ids.dtype)),
+                client_util.InferInput("bad_words_list", bad_words_list.shape,
+                                       np_to_triton_dtype(bad_words_list.dtype)),
+                client_util.InferInput("stop_words_list", stop_word_list.shape,
+                                       np_to_triton_dtype(stop_word_list.dtype)),
         ]
         inputs[0].set_data_from_numpy(input_data)
         inputs[1].set_data_from_numpy(input_len)
         inputs[2].set_data_from_numpy(output_len)
+        inputs[3].set_data_from_numpy(runtime_top_k)
+        inputs[4].set_data_from_numpy(runtime_top_p)
+        inputs[5].set_data_from_numpy(beam_search_diversity_rate)
+        inputs[6].set_data_from_numpy(temperature)
+        inputs[7].set_data_from_numpy(len_penalty)
+        inputs[8].set_data_from_numpy(repetition_penalty)
+        inputs[9].set_data_from_numpy(random_seed)
+        inputs[10].set_data_from_numpy(is_return_log_probs)
+        inputs[11].set_data_from_numpy(beam_width)
+        inputs[12].set_data_from_numpy(start_ids)
+        inputs[13].set_data_from_numpy(end_ids)
+        inputs[14].set_data_from_numpy(bad_words_list)
+        inputs[15].set_data_from_numpy(stop_word_list)
         result = client.infer(model_name, inputs)
 
-        return result.as_numpy("OUTPUT0")
+        return result.as_numpy("output_ids")
 
 
 def load_data(enc, dataset_path, number_of_samples):
@@ -134,13 +187,25 @@ if __name__ == '__main__':
                         required=False,
                         default=None,
                         help='Limits number of samples for test')
-    # parser.add_argument('-beam',
-    #                     '--beam_width',
-    #                     type=int,
-    #                     default=1,
-    #                     required=False,
-    #                     help='Specify beam width')
-
+    parser.add_argument('-beam',
+                        '--beam_width',
+                        type=int,
+                        default=1,
+                        required=False,
+                        help='Specify beam width')
+    parser.add_argument('-topk',
+                        '--topk',
+                        type=int,
+                        default=1,
+                        required=False,
+                        help='topk for sampling')
+    parser.add_argument('-topp',
+                        '--topp',
+                        type=float,
+                        default=0.0,
+                        required=False,
+                        help='topp for sampling')
+    
     FLAGS = parser.parse_args()
     if (FLAGS.protocol != "http") and (FLAGS.protocol != "grpc"):
         print("unexpected protocol \"{}\", expects \"http\" or \"grpc\"".format(
@@ -173,19 +238,16 @@ if __name__ == '__main__':
 
         padded_context = pad_sequence(
             context, batch_first=True, padding_value=END_ID)
-        padded_context = padded_context.cpu().numpy().astype(np.uint32).reshape(
-            [padded_context.shape[0], 1, padded_context.shape[1]])
+        padded_context = padded_context.cpu().numpy().astype(np.uint32)
         batch_size = padded_context.shape[0]
 
-        # tile for beam search
-        # padded_context = np.tile(padded_context, (1, FLAGS.beam_width, 1))
-        # input_len = np.tile(input_len.reshape([-1, 1]), (1, FLAGS.beam_width)).reshape([-1, 1])
-        # input_len = input_len.reshape((batch_size, FLAGS.beam_width))
         output_len = np.ones_like(input_len).astype(np.uint32)
         output_ids = send_requests(FLAGS.url, padded_context,
-                                   input_len, output_len, FLAGS.verbose, FLAGS.model_name)
+                                   input_len, output_len, FLAGS.verbose, FLAGS, FLAGS.model_name)
 
-        generated_tokens = output_ids[:, 0, -1]
+        generated_tokens = []
+        for output_id, i_len in zip(output_ids, input_len):
+            generated_tokens.append(output_id[0][i_len])
         correct_num += (generated_tokens == labels).astype(np.int32).sum()
 
     prev_index = 0
@@ -206,19 +268,15 @@ if __name__ == '__main__':
         for i in range(padded_input_start_ids.shape[-1] - 1):
 
             context = padded_input_start_ids[:, :i+1]
-            context = context.cpu().numpy().astype(np.uint32).reshape(
-                [context.shape[0], 1, context.shape[1]])
-            context_input_len = np.ones([batch_size], dtype=np.uint32) * (i+1)
-            context_input_len = context_input_len.reshape([-1, 1])
-            output_len = np.ones_like(context_input_len).astype(
-                np.uint32) * MAX_TEST_GRAM
-
+            context = context.cpu().numpy().astype(np.uint32)
+            context_input_len = np.ones([batch_size, 1], dtype=np.uint32) * (i+1)
+            output_len = np.ones_like(context_input_len).astype(np.uint32) * MAX_TEST_GRAM
             output_ids = send_requests(FLAGS.url, context,
-                                       context_input_len, output_len, FLAGS.verbose, FLAGS.model_name)
+                                       context_input_len, output_len, FLAGS.verbose, FLAGS, FLAGS.model_name)
 
             for j in range(1, MAX_TEST_GRAM + 1):
                 if i + j < padded_input_start_ids.shape[1]:
-                    generated_tokens = output_ids[:, :, i+1:i+1+j]
+                    generated_tokens = output_ids[:, 0, i+1:i+1+j]
                     generated_tokens = generated_tokens.reshape([-1, j])
                     labels = padded_input_start_ids[:, i+1:i+1+j].numpy()
                     is_same = generated_tokens == labels
