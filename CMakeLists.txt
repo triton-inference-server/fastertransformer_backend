@@ -100,7 +100,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   repo-ft
   GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer.git
-  GIT_TAG main
+  GIT_TAG v5.0
   GIT_SHALLOW ON
 )
 FetchContent_MakeAvailable(repo-common repo-core repo-backend repo-ft)
