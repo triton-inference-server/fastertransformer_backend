@@ -1,0 +1,44 @@
+name: "Bug Report"
+description: Submit a bug report
+labels: [ "bug" ]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Please share your system info with us.
+      render: shell
+      placeholder: branch, docker version, GPU type
+    validations:
+      required: true
+      
+  - type: textarea
+    id: reproduced-steps
+    attributes:
+      label: Reproduced Steps
+      description: Please provide the step to reproduce the bugs
+      render: shell
+      placeholder: |
+        Steps to reproduce your bugs:
+        
+        1. docker run -it \
+            -v ${WORKSPACE}:/workspace \
+            --name ft_backend_builder \
+            ${TRITON_DOCKER_IMAGE} bash
+        2. rm /opt/tritonserver/lib/cmake/FasterTransformer/ -rf # Remove original library
+        3. cd fastertransformer_backend
+        4. mkdir build -p && cd build && \
+            cmake \
+              -D CMAKE_EXPORT_COMPILE_COMMANDS=1 \
+              -D CMAKE_BUILD_TYPE=Release \
+              -D CMAKE_INSTALL_PREFIX=/opt/tritonserver \
+              -D TRITON_COMMON_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
+              -D TRITON_CORE_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
+              -D TRITON_BACKEND_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
+              .. && \
+            make -j"$(grep -c ^processor /proc/cpuinfo)" install
+        5. CUDA_VISIBLE_DEVICES=0 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=$PWD/../all_models/gpt/ &
+        6. python3 ft_workspace/fastertransformer_backend/tools/identity_test.py
+  
+    validations:
+      required: true
