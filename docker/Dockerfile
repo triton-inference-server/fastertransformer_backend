@@ -23,6 +23,10 @@ ARG TRITON_VERSION=22.01
 ARG BASE_IMAGE=nvcr.io/nvidia/tritonserver:${TRITON_VERSION}-py3
 FROM ${BASE_IMAGE} as server-builder
 
+RUN   apt-key del 7fa2af80
+ADD   https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb .
+RUN   dpkg -i cuda-keyring_1.0-1_all.deb
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     zip unzip wget build-essential autoconf autogen gdb \
@@ -74,17 +78,25 @@ COPY --from=server-builder /opt/tritonserver/backends/fastertransformer /opt/tri
 ENV WORKSPACE /workspace
 WORKDIR /workspace
 
+RUN   apt-key del 7fa2af80
+ADD   https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb .
+RUN   dpkg -i cuda-keyring_1.0-1_all.deb
+
 # Install pytorch
 RUN pip3 install torch==1.9.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html  && \
-    pip3 install --extra-index-url https://pypi.ngc.nvidia.com regex fire tritonclient[all]
+    pip3 install --extra-index-url https://pypi.ngc.nvidia.com regex fire ipywidgets tritonclient[all]
 
 # for debug
 RUN apt-get update -q && \
-    apt-get install -y --no-install-recommends openssh-server zsh tmux mosh locales-all clangd sudo && \
+    apt-get install -y --no-install-recommends openssh-server zsh tmux mosh locales-all clangd sudo cmake xz-utils zstd libz-dev git-lfs&& \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 RUN sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config
 RUN mkdir /var/run/sshd -p
 
+# temporal changes only for the blogpost about GPT-J and T5
+RUN ln -sf /usr/bin/python3.8 /usr/bin/python
+
 ADD . /workspace/fastertransformer_backend
+
