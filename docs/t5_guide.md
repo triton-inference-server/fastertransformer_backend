@@ -159,7 +159,7 @@ salloc -A account_name -t 10:00:00 -N 2
 
 Then run the script shown below to start two nodes' server.
 -N and -n should be equal to the number of nodes because we start one process per node. If you need to run on two nodes, then -N 2 and -n 2.
-Remeber to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](../README.md#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting) if you run on multiple nodes. 
+Remember to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](../README.md#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting) if you run on multiple nodes. 
 
 ```bash
 WORKSPACE="/workspace" # the dir you build the docker

@@ -193,7 +193,7 @@ We apply MPI to start single-node/multi-node servers.
 **Note** that we currently do not support the case that different nodes have different number of GPUs.
 
 We start one MPI process per node. If you need to run on three nodes, then you should launch 3 Nodes with one process per node.
-Remeber to change `tensor_para_size` and `pipeline_para_size` if you run on multiple nodes. 
+Remember to change `tensor_para_size` and `pipeline_para_size` if you run on multiple nodes. 
 
 We do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100), and pipeline_para_size = number of nodes (2 for two nodes). Other model configuration in config.pbtxt should be modified as normal.
 
