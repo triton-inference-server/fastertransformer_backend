@@ -90,7 +90,7 @@ if __name__ == '__main__':
                         action="store_true",
                         default=False,
                         required=False,
-                        help='return the cumulative log porbs and output log probs or not')
+                        help='return the cumulative log probs and output log probs or not')
 
     FLAGS = parser.parse_args()
     if (FLAGS.protocol != "http") and (FLAGS.protocol != "grpc"):
