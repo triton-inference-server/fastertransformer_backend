@@ -121,7 +121,7 @@ docker push <github_or_gitlab/repo_name/image_name>:${CONTAINER_VERSION}
 
 #### Rebuilding FasterTransformer backend (optional)
 
-Everytime you need to build updated fastertransformer_backend you can build docker image.
+Every time you need to build updated fastertransformer_backend you can build docker image.
 
 But also you can build it manually in interactive session (ex during fixing code on target node) with:
 
