@@ -964,7 +964,7 @@ ModelInstanceState::Execute(
     MPICHECK(MPI_Comm_size(MPI_COMM_WORLD, &num_nodes));
 
     if (node_id == 0) {
-      // Debug: input arary
+      // Debug: input array
       // triton_check_inputs(input_tensors, "triton_in");
     }
     if (node_id)
