@@ -301,7 +301,7 @@ if __name__ == '__main__':
 
     if FLAGS.n_gram_disabled is False:
         accuracy = (total_num - error_num) / total_num * 100
-        print("[INFO] accuracy under {} sentencs".format(len(all_ids)))
+        print("[INFO] accuracy under {} sentences".format(len(all_ids)))
         for i in range(MAX_TEST_GRAM):
             res[f"{i+1}-gram_accuracy"] = "{:5.2f}".format(accuracy[i])
             res[f"{i+1}-gram_count"] = total_num[i]
