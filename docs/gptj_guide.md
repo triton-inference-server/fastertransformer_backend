@@ -69,7 +69,7 @@ The following table shows the details of these settings:
 |                |       `input_lengths`        | [batch_size]                               |  uint32   |                               real sequence length of each input                                |
 |                |     `request_output_len`     | [batch_size]                               |  uint32   |                               how many tokens we want to generate                               |
 |                |       `runtime_top_k`        | [batch_size]                               |  uint32   |                                  candidate number for sampling                                  |
-|                |       `runtime_top_p`        | [batch_size]                               |   float   |                                candidate threshould for sampling                                |
+|                |       `runtime_top_p`        | [batch_size]                               |   float   |                                candidate threshold for sampling                                 |
 |                | `beam_search_diversity_rate` | [batch_size]                               |   float   |      diversity rate for beam search in this [paper](https://arxiv.org/pdf/1611.08562.pdf)       |
 |                |        `temperature`         | [batch_size]                               |   float   |                                      temperature for logit                                      |
 |                |        `len_penalty`         | [batch_size]                               |   float   |                                    length penalty for logit                                     |
