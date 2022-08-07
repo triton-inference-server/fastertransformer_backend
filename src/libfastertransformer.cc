@@ -1089,11 +1089,11 @@ ModelInstanceState::SetInputTensors(
 
     bool device_is_cpu = true;
 
-    std::vector<BackendMemory::AllocationType> alloc_perference;
+    std::vector<BackendMemory::AllocationType> alloc_preference;
     if (device_is_cpu) {
-      alloc_perference = {BackendMemory::AllocationType::CPU};
+      alloc_preference = {BackendMemory::AllocationType::CPU};
     } else {
-      alloc_perference = {
+      alloc_preference = {
           BackendMemory::AllocationType::GPU_POOL,
           BackendMemory::AllocationType::GPU};
     }
@@ -1102,7 +1102,7 @@ ModelInstanceState::SetInputTensors(
     RESPOND_ALL_AND_RETURN_IF_ERROR(
         responses, request_count,
         BackendMemory::Create(
-            model_state_->TritonMemoryManager(), alloc_perference,
+            model_state_->TritonMemoryManager(), alloc_preference,
             device_is_cpu ? 0 : DeviceId(), batchn_byte_size, &input_memory));
     input_memories->push_back(input_memory);
 
