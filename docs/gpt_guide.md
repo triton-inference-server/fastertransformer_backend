@@ -168,7 +168,7 @@ python ft_workspace/fastertransformer_backend/tools/end_to_end_test.py
 
 after launching the triton server.
 
-Regarding `bad_words_dict` and `stop_words_dict`, they should provide a single CSV-formatted string per item. The string then reprensent a list of words or expressions and each element is tokenized for further use by the model. Beware of tokenizer subtleties, for example, "word" and " word" are two distinct tokens. You can use the script in `all_models/gpt/preprocessing/1/word_list.py` to help you understand the tokenization.
+Regarding `bad_words_dict` and `stop_words_dict`, they should provide a single CSV-formatted string per item. The string then represent a list of words or expressions and each element is tokenized for further use by the model. Beware of tokenizer subtleties, for example, "word" and " word" are two distinct tokens. You can use the script in `all_models/gpt/preprocessing/1/word_list.py` to help you understand the tokenization.
 
 #### Evaluate the accuracy of GPT model on LAMBADA.
 
