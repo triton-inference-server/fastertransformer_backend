@@ -109,7 +109,7 @@ class TritonPythonModel:
             # response:
             #
             # pb_utils.InferenceResponse(
-            #    output_tensors=..., TritonError("An error occured"))
+            #    output_tensors=..., TritonError("An error occurred"))
             inference_response = pb_utils.InferenceResponse(output_tensors=[
                 output_tensor])
             responses.append(inference_response)
