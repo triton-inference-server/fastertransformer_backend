@@ -219,7 +219,7 @@ if __name__ == '__main__':
                         type=int,
                         default=1,
                         required=False,
-                        help="Spedifty number of runs to get the average latency"
+                        help="Specify number of runs to get the average latency"
                         )
 
     FLAGS = parser.parse_args()
