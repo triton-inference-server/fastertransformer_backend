@@ -121,7 +121,7 @@ docker push <github_or_gitlab/repo_name/image_name>:${CONTAINER_VERSION}
 
 #### Rebuilding FasterTransformer backend (optional)
 
-Everytime you need to build updated fastertransformer_backend you can build docker image.
+Every time you need to build updated fastertransformer_backend you can build docker image.
 
 But also you can build it manually in interactive session (ex during fixing code on target node) with:
 
@@ -193,7 +193,7 @@ We apply MPI to start single-node/multi-node servers.
 **Note** that we currently do not support the case that different nodes have different number of GPUs.
 
 We start one MPI process per node. If you need to run on three nodes, then you should launch 3 Nodes with one process per node.
-Remeber to change `tensor_para_size` and `pipeline_para_size` if you run on multiple nodes. 
+Remember to change `tensor_para_size` and `pipeline_para_size` if you run on multiple nodes. 
 
 We do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100), and pipeline_para_size = number of nodes (2 for two nodes). Other model configuration in config.pbtxt should be modified as normal.
 
@@ -201,7 +201,7 @@ We do suggest tensor_para_size = number of gpus in one node (e.g. 8 for DGX A100
 
 The `tools` directory provides python scripts to send requests to the triton server. You can build upon those examples to suit your needs.
 
-Specically `tools/issue_request.py` is a simple script that sends a request contained in a JSON file. You may use it with `$python3 tools/issue_request.py tools/requests/sample_request.json`, for example. You can also pass command-line arguments as a JSON-formatted string with the `--params` argument.
+Specifically `tools/issue_request.py` is a simple script that sends a request contained in a JSON file. You may use it with `$python3 tools/issue_request.py tools/requests/sample_request.json`, for example. You can also pass command-line arguments as a JSON-formatted string with the `--params` argument.
 
 ## Changelog
 

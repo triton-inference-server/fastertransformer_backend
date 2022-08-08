@@ -68,7 +68,7 @@ The following table shows the details of these settings:
 |                |         `input_ids`          | [batch_size, max_input_length]             |  uint32   |                             input ids after tokenization                             |
 |                |      `sequence_length`       | [batch_size]                               |  uint32   |                          real sequence length of each input                          |
 |                |       `runtime_top_k`        | [batch_size]                               |  uint32   |                            candidate number for sampling                             |
-|                |       `runtime_top_p`        | [batch_size]                               |   float   |                          candidate threshould for sampling                           |
+|                |       `runtime_top_p`        | [batch_size]                               |   float   |                          candidate threshold for sampling                            |
 |                | `beam_search_diversity_rate` | [batch_size]                               |   float   | diversity rate for beam search in this [paper](https://arxiv.org/pdf/1611.08562.pdf) |
 |                |        `temperature`         | [batch_size]                               |   float   |                                temperature for logit                                 |
 |                |        `len_penalty`         | [batch_size]                               |   float   |                               length penalty for logit                               |
@@ -159,7 +159,7 @@ salloc -A account_name -t 10:00:00 -N 2
 
 Then run the script shown below to start two nodes' server.
 -N and -n should be equal to the number of nodes because we start one process per node. If you need to run on two nodes, then -N 2 and -n 2.
-Remeber to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](../README.md#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting) if you run on multiple nodes. 
+Remember to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](../README.md#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting) if you run on multiple nodes. 
 
 ```bash
 WORKSPACE="/workspace" # the dir you build the docker

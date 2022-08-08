@@ -70,7 +70,7 @@ The following table shows the details of these settings:
 |                |       `input_lengths`        | [batch_size]                               |  uint32   |                              real sequence length of each input                               |
 |                |     `request_output_len`     | [batch_size]                               |  uint32   |                              how many tokens we want to generate                              |
 |                |       `runtime_top_k`        | [batch_size]                               |  uint32   |                                 candidate number for sampling                                 |
-|                |       `runtime_top_p`        | [batch_size]                               |   float   |                               candidate threshould for sampling                               |
+|                |       `runtime_top_p`        | [batch_size]                               |   float   |                               candidate threshold for sampling                                |
 |                | `beam_search_diversity_rate` | [batch_size]                               |   float   |     diversity rate for beam search in this [paper](https://arxiv.org/pdf/1611.08562.pdf)      |
 |                |        `temperature`         | [batch_size]                               |   float   |                                     temperature for logit                                     |
 |                |        `len_penalty`         | [batch_size]                               |   float   |                                   length penalty for logit                                    |
@@ -168,7 +168,7 @@ python ft_workspace/fastertransformer_backend/tools/end_to_end_test.py
 
 after launching the triton server.
 
-Regarding `bad_words_dict` and `stop_words_dict`, they should provide a single CSV-formatted string per item. The string then reprensent a list of words or expressions and each element is tokenized for further use by the model. Beware of tokenizer subtleties, for example, "word" and " word" are two distinct tokens. You can use the script in `all_models/gpt/preprocessing/1/word_list.py` to help you understand the tokenization.
+Regarding `bad_words_dict` and `stop_words_dict`, they should provide a single CSV-formatted string per item. The string then represent a list of words or expressions and each element is tokenized for further use by the model. Beware of tokenizer subtleties, for example, "word" and " word" are two distinct tokens. You can use the script in `all_models/gpt/preprocessing/1/word_list.py` to help you understand the tokenization.
 
 #### Evaluate the accuracy of GPT model on LAMBADA.
 
@@ -209,7 +209,7 @@ salloc -A account_name -t 10:00:00 -N 2
 
 Then run the script shown below to start two nodes' server.
 -N and -n should be equal to the number of nodes because we start one process per node. If you need to run on two nodes, then -N 2 and -n 2.
-Remeber to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)  if you run on multiple nodes. 
+Remember to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)  if you run on multiple nodes. 
 
 ```bash
 WORKSPACE="/workspace" # the dir you build the docker
