@@ -243,6 +243,7 @@ Specifically `tools/issue_request.py` is a simple script that sends a request co
 ## Changelog
 
 Aug 2022
+- Release **FasterTransformer backend v1.2**
 - Support for interactive generation
 
 July 2022
