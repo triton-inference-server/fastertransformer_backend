@@ -39,7 +39,7 @@
         {
             "name": "random_seed",
             "data": [[0], [0]],
-            "dtype": "int32"
+            "dtype": "uint64"
         },
         {
             "name": "is_return_log_probs",

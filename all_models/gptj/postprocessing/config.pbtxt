@@ -1,6 +1,6 @@
 name: "postprocessing"
 backend: "python"
-max_batch_size: 8
+max_batch_size: 1024
 input [
   {
     name: "TOKENS_BATCH"

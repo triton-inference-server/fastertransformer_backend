@@ -33,6 +33,8 @@ project(tritonfastertransformerbackend LANGUAGES C CXX)
 #
 option(TRITON_ENABLE_GPU "Enable GPU support in backend" ON)
 option(TRITON_ENABLE_STATS "Include statistics collections in backend" ON)
+option(BUILD_MULTI_GPU "Enable multi GPU support" ON)
+
 set(TRITON_PYTORCH_INCLUDE_PATHS "" CACHE PATH "Paths to Torch includes")
 set(TRITON_PYTORCH_LIB_PATHS "" CACHE PATH "Paths to Torch libraries")
 
@@ -44,8 +46,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(BUILD_MULTI_GPU "ON")
-message("-- Enable BUILD_MULTI_GPU")
 set(USE_TRITONSERVER_DATATYPE "ON")
 message("-- Enable USE_TRITONSERVER_DATATYPE")
 
@@ -56,10 +56,15 @@ find_package(Python3 REQUIRED COMPONENTS Development)
 
 find_package(FasterTransformer)
 find_package(CUDA 10.1 REQUIRED)
-find_package(MPI REQUIRED)
-find_package(NCCL REQUIRED)
-
-message(STATUS "Found MPI (include: ${MPI_INCLUDE_DIRS}, library: ${MPI_LIBRARIES})")
+if (BUILD_MULTI_GPU)
+  message(STATUS "Enable BUILD_MULTI_GPU.")
+  find_package(MPI REQUIRED)
+  find_package(NCCL REQUIRED)
+  message(STATUS "Found MPI (include: ${MPI_INCLUDE_DIRS}, library: ${MPI_LIBRARIES})")
+  message(STATUS "Found NCCL (include: ${NCCL_INCLUDE_DIRS}, library: ${NCCL_LIBRARIES})")
+else()
+  message(STATUS "Disable BUILD_MULTI_GPU.")
+endif()
 
 if (${CUDA_VERSION} GREATER_EQUAL 11.0)
   message(STATUS "Add DCUDA11_MODE")
@@ -97,12 +102,19 @@ FetchContent_Declare(
   GIT_TAG ${TRITON_BACKEND_REPO_TAG}
   GIT_SHALLOW ON
 )
-FetchContent_Declare(
-  repo-ft
-  GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer.git
-  GIT_TAG main
-  GIT_SHALLOW ON
-)
+if (EXISTS ${FT_DIR})
+  FetchContent_Declare(
+    repo-ft
+    SOURCE_DIR ${FT_DIR}
+  )
+else()
+  FetchContent_Declare(
+    repo-ft
+    GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer.git
+    GIT_TAG v5.1
+    GIT_SHALLOW ON
+  )
+endif()
 FetchContent_MakeAvailable(repo-common repo-core repo-backend repo-ft)
 
 #
@@ -128,12 +140,10 @@ add_library(
 
 #find_package(CUDAToolkit REQUIRED)
 find_package(CUDA 10.1 REQUIRED)
-find_package(MPI REQUIRED)
-##find_package(NCCL REQUIRED)
-#if (${CUDA_VERSION} GREATER_EQUAL 11.0)
-message(STATUS "Add DCUDA11_MODE")
-add_definitions("-DCUDA11_MODE")
-#endif()
+if (${CUDA_VERSION} GREATER_EQUAL 11.0)
+  message(STATUS "Add DCUDA11_MODE")
+  add_definitions("-DCUDA11_MODE")
+endif()
 
 set(CUDA_PATH ${CUDA_TOOLKIT_ROOT_DIR})
 
@@ -148,7 +158,6 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${TRITON_PYTORCH_INCLUDE_PATHS}
   ${Python3_INCLUDE_DIRS}
-  ${MPI_INCLUDE_PATH}
   ${repo-ft_SOURCE_DIR}
   ${repo-core_SOURCE_DIR}/include
   )
@@ -157,8 +166,6 @@ target_link_directories(
   triton-fastertransformer-backend
   PRIVATE
   ${CUDA_PATH}/lib64
-  ${MPI_Libraries}
-  /usr/local/mpi/lib
   )
 
 target_compile_features(triton-fastertransformer-backend PRIVATE cxx_std_14)
@@ -210,13 +217,36 @@ target_link_libraries(
     triton-backend-utils   # from repo-backend
     transformer-shared     # from repo-ft
     ${TRITON_PYTORCH_LDFLAGS}
-    ${NCCL_LIBRARIES}
-    ${MPI_LIBRARIES}
     -lcublas
     -lcublasLt
     -lcudart
     -lcurand
 )
+
+if (BUILD_MULTI_GPU)
+  target_compile_definitions(
+    triton-fastertransformer-backend
+    PUBLIC
+      BUILD_MULTI_GPU
+  )
+  target_include_directories(
+    triton-fastertransformer-backend
+    PRIVATE
+      ${MPI_INCLUDE_PATH}
+  )
+  target_link_directories(
+    triton-fastertransformer-backend
+    PRIVATE
+      ${MPI_Libraries}
+      /usr/local/mpi/lib
+  )
+  target_link_libraries(
+    triton-fastertransformer-backend
+    PRIVATE
+      ${NCCL_LIBRARIES}
+      ${MPI_LIBRARIES}
+  )
+endif()
 
 if(${TRITON_ENABLE_GPU})
   target_link_libraries(

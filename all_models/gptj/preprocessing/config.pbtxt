@@ -1,6 +1,6 @@
 name: "preprocessing"
 backend: "python"
-max_batch_size: 8
+max_batch_size: 1024
 input [
     {
         name: "QUERY"
@@ -48,6 +48,11 @@ output [
         name: "REQUEST_OUTPUT_LEN"
         data_type: TYPE_UINT32
         dims: [ -1 ]
+    },
+    {
+        name: "PROMPT_LEARNING_TASK_NAME_IDS"
+        data_type: TYPE_UINT32
+        dims: [ 1 ]
     }
 ]
 

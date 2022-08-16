@@ -25,13 +25,18 @@
 # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import google.protobuf.json_format
 import json
+import multiprocessing as mp
 import numpy as np
+import time
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
 
 from argparse import ArgumentParser
 from collections.abc import Mapping
+from functools import partial
+from tritonclient.grpc.service_pb2 import ModelInferResponse
 from tritonclient.utils import np_to_triton_dtype
 
 
@@ -61,9 +66,10 @@ def parse_args():
 def generate_parameters(args):
     DEFAULT_CONFIG = {
         'protocol': 'http',
-        'url': 'localhost:8000',
+        'url': None,
         'model_name': 'fastertransformer',
         'verbose': False,
+        'stream_api': False,
     }
     params = {'config': DEFAULT_CONFIG}
 
@@ -80,6 +86,12 @@ def generate_parameters(args):
             'data': np.array(value['data'], dtype=value['dtype']),
         }
 
+    if params['config']['url'] is None:
+        if params['config']['protocol'] == 'grpc':
+            params['config']['url'] = 'localhost:8001'
+        else:
+            params['config']['url'] = 'localhost:8000'
+
     return params['config'], params['request']
 
 
@@ -89,19 +101,80 @@ def prepare_tensor(client, name, input):
     return t
 
 
-def main(config, request):
-    client_type = httpclient if config['protocol'] == 'http' else grpcclient
-    with client_type.InferenceServerClient(config['url'], verbose=config['verbose'], concurrency=10) as cl:
+def stream_consumer(queue):
+    start_time = None
+    while True:
+        result = queue.get()
+        if result is None:
+            break
+
+        if isinstance(result, float):
+            start_time = result
+            continue
+
+        message = ModelInferResponse()
+        google.protobuf.json_format.Parse(json.dumps(result), message)
+        result = grpcclient.InferResult(message)
+
+        idx = result.as_numpy("sequence_length")[0, 0]
+        tokens = result.as_numpy("output_ids")[0, 0, :idx]
+        prob = result.as_numpy("cum_log_probs")[0, 0]
+        print("[After {:.2f}s] Partial result (probability {:.2e}):\n{}\n".format(
+            time.perf_counter() - start_time, np.exp(prob), tokens))
+
+
+def stream_callback(queue, result, error):
+    if error:
+        queue.put(error)
+    else:
+        queue.put(result.get_response(as_json=True))
+
+
+def main_stream(config, request):
+    client_type = grpcclient
+
+    kwargs = {"verbose": config["verbose"]}
+    result_queue = mp.Queue()
+
+    consumer = mp.Process(target=stream_consumer, args=(result_queue,))
+    consumer.start()
+
+    with grpcclient.InferenceServerClient(config['url'], verbose=config["verbose"]) as cl:
+        payload = [prepare_tensor(grpcclient, field['name'], field['data'])
+            for field in request]
+
+        cl.start_stream(callback=partial(stream_callback, result_queue))
+        result_queue.put(time.perf_counter())
+        cl.async_stream_infer(config['model_name'], payload)
+    result_queue.put(None)
+    consumer.join()
+
+
+def main_sync(config, request):
+    is_http = config['protocol'] == 'http'
+    client_type = httpclient if is_http else grpcclient
+
+    kwargs = {"verbose": config["verbose"]}
+    if is_http:
+        kwargs["concurrency"] = 10
+    with client_type.InferenceServerClient(config['url'], **kwargs) as cl:
         payload = [prepare_tensor(client_type, field['name'], field['data'])
             for field in request]
 
         result = cl.infer(config['model_name'], payload)
 
-    for output in result.get_response()['outputs']:
-        print("{}:\n{}\n".format(output['name'], result.as_numpy(output['name'])))
+    if is_http:
+        for output in result.get_response()['outputs']:
+            print("{}:\n{}\n".format(output['name'], result.as_numpy(output['name'])))
+    else:
+        for output in result.get_response().outputs:
+            print("{}:\n{}\n".format(output.name, result.as_numpy(output.name)))
 
 
 if __name__ == "__main__":
     args = parse_args()
     config, request = generate_parameters(args)
-    main(config, request)
+    if not config['stream_api']:
+        main_sync(config, request)
+    else:
+        main_stream(config, request)
