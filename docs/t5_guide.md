@@ -28,7 +28,7 @@
 
 # FasterTransformer T5 Triton Backend
 
-The FasterTransformer T5 implementation are in [t5_guide.md](https://github.com/NVIDIA/FasterTransformer/blob/dev/v5.0_beta/docs/t5_guide.md).
+The FasterTransformer T5 implementation are in [t5_guide.md](https://github.com/NVIDIA/FasterTransformer/blob/main/docs/t5_guide.md).
 
 ## Table Of Contents
  
@@ -40,6 +40,7 @@ The FasterTransformer T5 implementation are in [t5_guide.md](https://github.com/
     - [Prepare Triton T5 model store](#prepare-triton-t5-model-store)
   - [Run Serving on Single Node](#run-serving-on-single-node)
     - [Run serving directly](#run-serving-directly)
+    - [Issue request directly](#issue-request-directly)
   - [Run Triton server on multiple nodes](#run-triton-server-on-multiple-nodes)
     - [Prepare Triton model store for multi-node setup](#prepare-triton-model-store-for-multi-node-setup)
     - [Run on cluster with Enroot/Pyxis support](#run-on-cluster-with-enrootpyxis-support)
@@ -62,66 +63,69 @@ The following table shows the details of these settings:
 
 * Settings in config.pbtxt
 
-| Classification |             Name             | Tensor/Parameter Shape                     | Data Type |                                     Description                                      |
-| :------------: | :--------------------------: | :----------------------------------------- | :-------: | :----------------------------------------------------------------------------------: |
-|     input      |                              |                                            |           |                                                                                      |
-|                |         `input_ids`          | [batch_size, max_input_length]             |  uint32   |                             input ids after tokenization                             |
-|                |      `sequence_length`       | [batch_size]                               |  uint32   |                          real sequence length of each input                          |
-|                |       `runtime_top_k`        | [batch_size]                               |  uint32   |                            candidate number for sampling                             |
-|                |       `runtime_top_p`        | [batch_size]                               |   float   |                          candidate threshold for sampling                            |
-|                | `beam_search_diversity_rate` | [batch_size]                               |   float   | diversity rate for beam search in this [paper](https://arxiv.org/pdf/1611.08562.pdf) |
-|                |        `temperature`         | [batch_size]                               |   float   |                                temperature for logit                                 |
-|                |        `len_penalty`         | [batch_size]                               |   float   |                               length penalty for logit                               |
-|                |     `repetition_penalty`     | [batch_size]                               |   float   |                             repetition penalty for logit                             |
-|                |        `random_seed`         | [batch_size]                               |   float   |                               random seed for sampling                               |
-|                |    `is_return_log_probs`     | [batch_size]                               |   bool    |               flag to return the log probs of generated token or not.                |
-|                |       `max_output_len`       | [batch_size]                               |  uint32   |                              max output sequence length                              |
-|                |         `beam_width`         | [batch_size]                               |  uint32   |              beam size for beam search, using sampling if setting to 1               |
-|                |       `bad_words_list`       | [batch_size, 2, word_list_len]             |   int32   | List of tokens (words) to never sample. Should be generated with FasterTransformer/examples/pytorch/gpt/utils/word_list.py |
-|                |       `stop_words_list`      | [batch_size, 2, word_list_len]             |   int32   | List of tokens (words) that stop sampling. Should be generated with FasterTransformer/examples/pytorch/gpt/utils/word_list.py |
-|     output     |                              |                                            |           |                                                                                      |
-|                |         `output_ids`         | [batch_size, beam_width, max_input_length] |  uint32   |                           output ids before detokenization                           |
-|                |      `sequence_length`       | [batch_size]                               |  uint32   |                         real sequence length of each output                          |
-|                |       `cum_log_probs`        | [batch_size, beam_width]                   |  uint32   |                    cumulative log probability of output sentence                     |
-|   parameter    |                              |                                            |           |                                                                                      |
-|                |      `tensor_para_size`      |                                            |    int    |                        parallelism ways in tensor parallelism                        |
-|                |     `pipeline_para_size`     |                                            |    int    |                       parallelism ways in pipeline parallelism                       |
-|                |          `is_half`           |                                            |   bool    |     using half for inference or not. 0 means to use float, 1 means to use half.      |
-|                |  `enable_custom_all_reduce`  |                                            |   bool    |                           use custom all reduction or not                            |
-|                |         `model_type`         |                                            |  string   |                                    must use `T5`                                     |
-|                |   `model_checkpoint_path`    |                                            |  string   |                  the path to save `config.ini` and weights of model                  |
-
+| Classification |             Name             |              Tensor/Parameter Shape              | Data Type |                                                                 Description                                                                 |
+| :------------: | :--------------------------: | :----------------------------------------------: | :-------: | :-----------------------------------------------------------------------------------------------------------------------------------------: |
+|     input      |                              |                                                  |           |                                                                                                                                             |
+|                |         `input_ids`          |          [batch_size, max_input_length]          |  uint32   |                                                        input ids after tokenization                                                         |
+|                |      `sequence_length`       |                   [batch_size]                   |  uint32   |                                                     real sequence length of each input                                                      |
+|                |       `runtime_top_k`        |                   [batch_size]                   |  uint32   |                                                 **Optional**. candidate number for sampling                                                 |
+|                |       `runtime_top_p`        |                   [batch_size]                   |   float   |                                               **Optional**. candidate threshold for sampling                                                |
+|                | `beam_search_diversity_rate` |                   [batch_size]                   |   float   |                     **Optional**. diversity rate for beam search in this [paper](https://arxiv.org/pdf/1611.08562.pdf)                      |
+|                |        `temperature`         |                   [batch_size]                   |   float   |                                                     **Optional**. temperature for logit                                                     |
+|                |        `len_penalty`         |                   [batch_size]                   |   float   |                                                   **Optional**. length penalty for logit                                                    |
+|                |     `repetition_penalty`     |                   [batch_size]                   |   float   |                                                 **Optional**. repetition penalty for logit                                                  |
+|                |        `random_seed`         |                   [batch_size]                   |  uint64   |                                                   **Optional**. random seed for sampling                                                    |
+|                |    `is_return_log_probs`     |                   [batch_size]                   |   bool    |                                    **Optional**. flag to return the log probs of generated token or not.                                    |
+|                |       `max_output_len`       |                   [batch_size]                   |  uint32   |                                                  **Optional**. max output sequence length                                                   |
+|                |         `beam_width`         |                   [batch_size]                   |  uint32   |                                   **Optional**. beam size for beam search, using sampling if setting to 1                                   |
+|                |       `bad_words_list`       |          [batch_size, 2, word_list_len]          |   int32   |  **Optional**. List of tokens (words) to never sample. Should be generated with FasterTransformer/examples/pytorch/gpt/utils/word_list.py   |
+|                |      `stop_words_list`       |          [batch_size, 2, word_list_len]          |   int32   | **Optional**. List of tokens (words) that stop sampling. Should be generated with FasterTransformer/examples/pytorch/gpt/utils/word_list.py |
+|     output     |                              |                                                  |           |                                                                                                                                             |
+|                |         `output_ids`         |           [batch_size, beam_width, -1]           |  uint32   |                                                      output ids before detokenization                                                       |
+|                |      `sequence_length`       |                   [batch_size]                   |  uint32   |                                                     real sequence length of each output                                                     |
+|                |       `cum_log_probs`        |             [batch_size, beam_width]             |   float   |                                         **Optional**. cumulative log probability of output sentence                                         |
+|                |      `output_log_probs`      | [batch_size, beam_width, request_output_seq_len] |   float   |                              **Optional**. It records the log probability of logits at each step for sampling.                              |
+|   parameter    |                              |                                                  |           |                                                                                                                                             |
+|                |      `tensor_para_size`      |                                                  |    int    |                                                   parallelism ways in tensor parallelism                                                    |
+|                |     `pipeline_para_size`     |                                                  |    int    |                                                  parallelism ways in pipeline parallelism                                                   |
+|                |         `data_type`          |                                                  |  string   |                                     infernce data type: fp32 = float32, fp16 = float16, bf16 = bfloat16                                     |
+|                |  `enable_custom_all_reduce`  |                                                  |   bool    |                                                       use custom all reduction or not                                                       |
+|                |         `model_type`         |                                                  |  string   |                                                                must use `T5`                                                                |
+|                |   `model_checkpoint_path`    |                                                  |  string   |                                             the path to save `config.ini` and weights of model                                              |
 
 ### Prepare Triton T5 model store
+
+Following the guide [#setup](../README.md#setup) to prepare the docker image.
 
 Download T5 model checkpoint:
 
 ```shell
-git clone https://huggingface.co/t5-small
+docker run -it --rm --gpus=all -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
+# now in docker
+export WORKSPACE=$(pwd)
+
+git lfs clone https://huggingface.co/t5-small
 git clone https://github.com/NVIDIA/FasterTransformer.git # To convert checkpoint
-pip install -r ../tools/t5_utils/t5_requirement.txt # Used to load the checkpoint of huggingface and testing
 python3 FasterTransformer/examples/pytorch/t5/utils/huggingface_t5_ckpt_convert.py \
         -in_file t5-small/ \
-        -saved_dir ../all_models/t5/fastertransformer/1/ \
-        -infer_gpu_num 1
+        -saved_dir ${WORKSPACE}/all_models/t5/fastertransformer/1/ \
+        -inference_tensor_para_size 1
 ```
 
 We need to convert to format handled by FasterTransformer. 
 If you want to run the model with tensor parallel size 4 and pipeline parallel size 2,
-you should convert checkpoints with `-infer_gpu_num = [tensor_para_size], i.e. -infer_gpu_num = 4`. 
+you should convert checkpoints with `-inference_tensor_para_size = [tensor_para_size], i.e. -inference_tensor_para_size = 4`. 
 We will convert it directly to directory structure which later we'd use as Triton model store.
 
-Then we will get the model weights (`xxx.bin`) and the config file of model (`config.ini`) in the `../all_models/t5/fastertransformer/1/1-gpu/`. The `config.ini` file contains the hyper-parameters of both encoder and decoder. Note that user need to change the `model_checkpoint_path` to `../all_models/t5/fastertransformer/1/1-gpu/`.
+Then we will get the model weights (`xxx.bin`) and the config file of model (`config.ini`) in the `${WORKSPACE}/all_models/t5/fastertransformer/1/1-gpu/`. The `config.ini` file contains the hyper-parameters of both encoder and decoder. Note that user need to change the `model_checkpoint_path` to `${WORKSPACE}/all_models/t5/fastertransformer/1/1-gpu/`.
 
 ## Run Serving on Single Node
 
 ### Run serving directly
 
 ```bash
-docker run -it --rm --gpus=all -v ${WORKSPACE}:/ft_workspace ${TRITON_DOCKER_IMAGE} bash
-# now in docker
-CUDA_VISIBLE_DEVICES=0 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=$PWD/../all_models/t5/ &
-python3 ../tools/t5_utils/t5_end_to_end_test.py --batch_size 32
+CUDA_VISIBLE_DEVICES=0 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=${WORKSPACE}/all_models/t5/ &
+python3 tools/t5_utils/t5_end_to_end_test.py --batch_size 32
 ```
 
 The results would be like
@@ -132,6 +136,12 @@ The results would be like
 
 * Note: If user encounter `[ERROR] world_size (4) should equal to tensor_para_size_ * pipeline_para_size_ (1 * 1 here)`, please check that the GPU number of your device and set the GPUs you want to use by `CUDA_VISIBLE_DEVICES`. 
 * Recommend modifying the SERVER_TIMEOUT of common/util.sh to longer time
+
+### Issue request directly
+
+```bash
+python3 ${WORKSPACE}/tools/issue_request.py tools/requests/sample_request_single_t5.json
+```
 
 ## Run Triton server on multiple nodes
 

@@ -29,6 +29,15 @@ import tritonclient.http as httpclient
 from tritonclient.utils import np_to_triton_dtype
 from sacrebleu import corpus_bleu
 
+def create_inference_server_client(protocol, url, concurrency, verbose):
+    client_util = httpclient if protocol == "http" else grpcclient
+    if protocol == "http":
+        return client_util.InferenceServerClient(url,
+                                                concurrency=concurrency,
+                                                verbose=verbose)
+    elif protocol == "grpc":
+        return client_util.InferenceServerClient(url,
+                                                verbose=verbose)
 
 def bleu_score(pred, ref):
     bleu = corpus_bleu(pred, [ref], force=True)
@@ -39,8 +48,8 @@ def bleu_score(pred, ref):
     print("       bleu sys_len: {}; ref_len: {}".format(bleu.sys_len, bleu.ref_len))
     return bleu
 
-def prepare_tensor(name, input):
-    client_util = httpclient
+def prepare_tensor(name, input, protocol):
+    client_util = httpclient if protocol == "http" else grpcclient
     t = client_util.InferInput(
         name, input.shape, np_to_triton_dtype(input.dtype))
     t.set_data_from_numpy(input)
@@ -81,17 +90,17 @@ def translate(args_dict):
 
     translation_result_list = []
     translation_result_list.append(TranslationResult("ft_triton", "FT"))
-    client_util = httpclient
     for i in range(len(translation_result_list)):
         sys.stdout.flush()
         
-        url = "localhost:8000"
+        url = "localhost:8000" if args_dict["protocol"] == "http" else "localhost:8001"
         model_name = "fastertransformer"
         request_parallelism = 10
         verbose = False
-        with client_util.InferenceServerClient(url,
-                                               concurrency=request_parallelism,
-                                               verbose=verbose) as client:
+        with create_inference_server_client(args_dict["protocol"],
+                                            url,
+                                            concurrency=request_parallelism,
+                                            verbose=verbose) as client:
             prev = 0
             start_time = datetime.now()
             results = []
@@ -103,15 +112,13 @@ def translate(args_dict):
                 input_ids = input_token.input_ids.numpy().astype(np.uint32)
                 mem_seq_len = torch.sum(input_token.attention_mask, dim=1).numpy().astype(np.uint32)
                 mem_seq_len = mem_seq_len.reshape([mem_seq_len.shape[0], 1])
-
-                # TODO(bhsueh) should be set to optional inputs in the future
                 runtime_top_k = (topk * np.ones([input_ids.shape[0], 1])).astype(np.uint32)
                 runtime_top_p = topp * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 beam_search_diversity_rate = 0.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 temperature = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 len_penalty = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 repetition_penalty = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
-                random_seed = 0 * np.ones([input_ids.shape[0], 1]).astype(np.int32)
+                random_seed = 0 * np.ones([input_ids.shape[0], 1]).astype(np.uint64)
                 is_return_log_probs = True * np.ones([input_ids.shape[0], 1]).astype(bool)
                 max_output_len = (maximum_output_length * np.ones([input_ids.shape[0], 1])).astype(np.uint32)
                 bad_words_ids = np.array([[[0], [-1]]] * input_ids.shape[0], dtype=np.int32)
@@ -121,22 +128,22 @@ def translate(args_dict):
                 end_ids = 1 * np.ones([input_ids.shape[0], 1]).astype(np.uint32)
 
                 inputs = [
-                    prepare_tensor("input_ids", input_ids),
-                    prepare_tensor("sequence_length", mem_seq_len),
-                    prepare_tensor("runtime_top_k", runtime_top_k),
-                    prepare_tensor("runtime_top_p", runtime_top_p),
-                    prepare_tensor("beam_search_diversity_rate", beam_search_diversity_rate),
-                    prepare_tensor("temperature", temperature),
-                    prepare_tensor("len_penalty", len_penalty),
-                    prepare_tensor("repetition_penalty", repetition_penalty),
-                    prepare_tensor("random_seed", random_seed),
-                    prepare_tensor("is_return_log_probs", is_return_log_probs),
-                    prepare_tensor("max_output_len", max_output_len),
-                    prepare_tensor("beam_width", beam_width),
-                    prepare_tensor("start_id", start_ids),
-                    prepare_tensor("end_id", end_ids),
-                    prepare_tensor("bad_words_list", bad_words_ids),
-                    prepare_tensor("stop_words_list", stop_words_ids),
+                    prepare_tensor("input_ids", input_ids, args_dict["protocol"]),
+                    prepare_tensor("sequence_length", mem_seq_len, args_dict["protocol"]),
+                    prepare_tensor("runtime_top_k", runtime_top_k, args_dict["protocol"]),
+                    prepare_tensor("runtime_top_p", runtime_top_p, args_dict["protocol"]),
+                    prepare_tensor("beam_search_diversity_rate", beam_search_diversity_rate, args_dict["protocol"]),
+                    prepare_tensor("temperature", temperature, args_dict["protocol"]),
+                    prepare_tensor("len_penalty", len_penalty, args_dict["protocol"]),
+                    prepare_tensor("repetition_penalty", repetition_penalty, args_dict["protocol"]),
+                    prepare_tensor("random_seed", random_seed, args_dict["protocol"]),
+                    prepare_tensor("is_return_log_probs", is_return_log_probs, args_dict["protocol"]),
+                    prepare_tensor("max_output_len", max_output_len, args_dict["protocol"]),
+                    prepare_tensor("beam_width", beam_width, args_dict["protocol"]),
+                    prepare_tensor("start_id", start_ids, args_dict["protocol"]),
+                    prepare_tensor("end_id", end_ids, args_dict["protocol"]),
+                    prepare_tensor("bad_words_list", bad_words_ids, args_dict["protocol"]),
+                    prepare_tensor("stop_words_list", stop_words_ids, args_dict["protocol"]),
                 ]
                 
                 print("set request")
@@ -149,7 +156,7 @@ def translate(args_dict):
                 ft_decoding_seq_lens = result.as_numpy("sequence_length")
                 cum_log_probs = result.as_numpy("cum_log_probs")
                 output_log_probs = result.as_numpy("output_log_probs")
-                
+
                 translation_result_list[i].batch_ids_list.append(ft_decoding_outputs)
                 translation_result_list[i].batch_seq_len_list.append(ft_decoding_seq_lens)
                 
@@ -180,9 +187,9 @@ if __name__ == "__main__":
                         help='batch size (default: 1)')
     parser.add_argument('-max_output_len', '--maximum_output_length', type=int, default=128, metavar='NUMBER',
                         help='maximum output length (default: 128)')
-    parser.add_argument("--source", default="../tools/t5_utils/test.en",
+    parser.add_argument("--source", default="tools/t5_utils/test.en",
                         help="Path to the source file.")
-    parser.add_argument("--target", default="../tools/t5_utils/test.de",
+    parser.add_argument("--target", default="tools/t5_utils/test.de",
                         help="Path to the target file.")
     parser.add_argument('-model', '--model', type=str, default="t5-small", metavar='STRING',
                         help='T5 model size.', choices=["t5-small", "t5-base", "t5-large", "t5-3b", "t5-11b"])
@@ -192,6 +199,13 @@ if __name__ == "__main__":
                         help='Candidate (k) value of top k sampling in decoding. Default is 1.')
     parser.add_argument('-topp', '--sampling_topp', type=float, default=0.0, metavar='NUMBER',
                         help='Probability (p) value of top p sampling in decoding. Default is 0.0. ')
+    parser.add_argument('-i',
+                        '--protocol',
+                        type=str,
+                        required=False,
+                        default='http',
+                        help='Protocol ("http"/"grpc") used to ' +
+                        'communicate with inference service. Default is "http".')
     args = parser.parse_args()
 
     translate(vars(args))

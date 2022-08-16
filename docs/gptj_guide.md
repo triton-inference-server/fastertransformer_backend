@@ -28,7 +28,7 @@
 
 # FasterTransformer GPT-J Triton Backend
 
-The FasterTransformer GPT-J implementation are in [gptj_guide.md](https://github.com/NVIDIA/FasterTransformer/blob/dev/v5.0_beta/docs/gptj_guide.md).
+The FasterTransformer GPT-J implementation are in [gptj_guide.md](https://github.com/NVIDIA/FasterTransformer/blob/main/docs/gptj_guide.md).
 
 ## Table Of Contents
  
@@ -37,7 +37,8 @@ The FasterTransformer GPT-J implementation are in [gptj_guide.md](https://github
   - [Introduction](#introduction)
   - [Setup Environment](#setup-environment)
     - [How to set the model configuration](#how-to-set-the-model-configuration)
-    - [Prepare Triton GPT-J model store](#prepare-triton-gpt-j-model-store)
+    - [Decoupled mode](#decoupled-mode)
+    - [Prepare Triton GPT-J model](#prepare-triton-gpt-j-model)
   - [Run Serving on Single Node](#run-serving-on-single-node)
     - [Run serving directly](#run-serving-directly)
       - [Run GPT-J end-to-end serving by Triton ensemble](#run-gpt-j-end-to-end-serving-by-triton-ensemble)
@@ -56,68 +57,114 @@ Follow the guide in [`README.md`](../README.md) to setup the environment and pre
 
 ### How to set the model configuration
 
-In GPT-J triton backend, the serving configuration is controlled by `config.pbtxt`. We provide an example in `all_models/gptj/fastertransformer/config.pbtxt`. It contains the input parameters, output parameters, model configuration, some other settings like `tensor_para_size` and `model_checkpoint_path`.
+Generally, we need two configuration files to server the FasterTransformer models.
 
-The following table shows the details of these settings:
+**Model Configuration: config.ini generated during converting the model**
 
-* Settings in config.pbtxt
+  Normally, this is will be generated automatically when you converting the model checkpoint to FasterTransformer format. However, some configurations (like start_id, end_id) may need to be modified on your own.
+  It is because the converter doesn't know anything about the tokenizer if the original checkpoint configurations don't contain such information.
 
-| Classification |             Name             | Tensor/Parameter Shape                     | Data Type |                                           Description                                           |
-| :------------: | :--------------------------: | :----------------------------------------- | :-------: | :---------------------------------------------------------------------------------------------: |
-|     input      |                              |                                            |           |                                                                                                 |
-|                |         `input_ids`          | [batch_size, max_input_length]             |  uint32   |                                  input ids after tokenization                                   |
-|                |       `input_lengths`        | [batch_size]                               |  uint32   |                               real sequence length of each input                                |
-|                |     `request_output_len`     | [batch_size]                               |  uint32   |                               how many tokens we want to generate                               |
-|                |       `runtime_top_k`        | [batch_size]                               |  uint32   |                                  candidate number for sampling                                  |
-|                |       `runtime_top_p`        | [batch_size]                               |   float   |                                candidate threshold for sampling                                 |
-|                | `beam_search_diversity_rate` | [batch_size]                               |   float   |      diversity rate for beam search in this [paper](https://arxiv.org/pdf/1611.08562.pdf)       |
-|                |        `temperature`         | [batch_size]                               |   float   |                                      temperature for logit                                      |
-|                |        `len_penalty`         | [batch_size]                               |   float   |                                    length penalty for logit                                     |
-|                |     `repetition_penalty`     | [batch_size]                               |   float   |                                  repetition penalty for logit                                   |
-|                |        `random_seed`         | [batch_size]                               |   float   |                                    random seed for sampling                                     |
-|                |    `is_return_log_probs`     | [batch_size]                               |   bool    |                     flag to return the log probs of generated token or not.                     |
-|                |         `beam_width`         | [batch_size]                               |  uint32   |                    beam size for beam search, using sampling if setting to 1                    |
-|                |       `bad_words_list`       | [batch_size, 2, word_list_len]             |   int32   | List of tokens (words) to never sample. Should be generated with `all_models/gpt/preprocessing/1/word_list.py` |
-|                |       `stop_words_list`      | [batch_size, 2, word_list_len]             |   int32   | List of tokens (words) that stop sampling. Should be generated with `all_models/gpt/preprocessing/1/word_list.py` |
-|     output     |                              |                                            |           |                                                                                                 |
-|                |         `output_ids`         | [batch_size, beam_width, max_input_length] |  uint32   |                                output ids before detokenization                                 |
-|                |      `sequence_length`       | [batch_size, beam_width]                   |  uint32   |                              final sequence lengths of output ids                               |
-|                |       `cum_log_probs`        | [batch_size, beam_width]                   |  uint32   |                          cumulative log probability of output sentence                          |
-|   parameter    |                              |                                            |           |                                                                                                 |
-|                |      `tensor_para_size`      |                                            |    int    |                             parallelism ways in tensor parallelism                              |
-|                |     `pipeline_para_size`     |                                            |    int    |                            parallelism ways in pipeline parallelism                             |
-|                |        `max_seq_len`         |                                            |    int    |                 maximum sequence length supported for position embedding table                  |
-|                |          `is_half`           |                                            |   bool    |           using half for inference or not. 0 means to use float, 1 means to use half            |
-|                |          `head_num`          |                                            |    int    |           the number of head in transformer attention block. A model hyper-parameter            |
-|                |       `size_per_head`        |                                            |    int    |          the size of each head in transformer attention block. A model hyper-parameter          |
-|                |         `inter_size`         |                                            |    int    |                   the intermediate size of FFN layer. A model hyper-parameter                   |
-|                |         `vocab_size`         |                                            |    int    |                                     the size of vocabulary.                                     |
-|                |          `start_id`          |                                            |    int    | the id for start token for un-conditional generation task. In GPT-J, it is often same to end_id |
-|                |       `decoder_layers`       |                                            |    int    |                    the number of transformer layer. A model hyper-parameter                     |
-|                |      `rotary_embedding`      |                                            |    int    |                         rotary embedding size. A model hyper-parameter                          |
-|                |         `model_type`         |                                            |  string   |                                        must use `GPT-J`                                         |
-|                |   `model_checkpoint_path`    |                                            |  string   |                                the path to save weights of model                                |
-|                |  `enable_custom_all_reduce`  |                                            |   bool    |                                 use custom all reduction or not                                 |
+  We provide an example in `all_models/gptj/fastertransformer/1/config.ini`.
 
-### Prepare Triton GPT-J model store
+  - This should be placed in the same directory of model weights
+  - This will be loaded by fastertransformers.
+  - This mainly describes the model structure and prompt hyperparameters, start_id, end_id, and so on.
+
+  The following table shows the details of config.ini:
+
+  |  Classification  |            Name            | Tensor/Parameter Shape | Data Type |                                                 Description                                                  |
+  | :--------------: | :------------------------: | :--------------------: | :-------: | :----------------------------------------------------------------------------------------------------------: |
+  |       gpt        |                            |                        |           |                                                                                                              |
+  |                  |     `max_pos_seq_len`      |                        |    int    | maximum sequence length supported for position embedding table  (only needed by absolute position embedding) |
+  |                  |         `head_num`         |                        |    int    |                  the number of head in transformer attention block. A model hyper-parameter                  |
+  |                  |      `size_per_head`       |                        |    int    |                the size of each head in transformer attention block. A model hyper-parameter                 |
+  |                  |        `inter_size`        |                        |    int    |                         the intermediate size of FFN layer. A model hyper-parameter                          |
+  |                  |        `vocab_size`        |                        |    int    |                                           the size of vocabulary.                                            |
+  |                  |         `start_id`         |                        |    int    |       the id for start token for un-conditional generation task. In GPT-J, it is often same to end_id        |
+  |                  |          `end_id`          |                        |    int    |                                  the id for end token for generation task.                                   |
+  |                  |        `num_layer`         |                        |    int    |                           the number of transformer layer. A model hyper-parameter                           |
+  |                  |     `rotary_embedding`     |                        |    int    |                                rotary embedding size. A model hyper-parameter                                |
+  | weight_data_type |     `weight_data_type`     |                        |    str    |   the weight data type (stored in fastertransformer format), and  will be casted when loaded if necessary    |
+  | prompt_learning  |                            |                        |           |                                                                                                              |
+  |                  |   `prompt_learning_type`   |                        |    int    |        the prompt learning type: [0] no prompt [1] soft prompt [2] prefix_prompt [3] p/prompt tuning         |
+  |                  | `prompt_learning_start_id` |                        |    int    |  the prompt learning virtual token start id: only used by p/prompt_tuning to check if id is a prompt or not  |
+  |      task_i      |                            |                        |           |                           the prompt learning task: task Name id = i (0, 1, ....)                            |
+  |                  |        `task_name`         |                        |    str    |                              the task_name used to load specific prompt weights                              |
+  |                  |      `prompt_length`       |                        |    int    |                                        the prompt tokens total length                                        |
+
+
+**Fastertransformer-Triton Serving Configuration: config.pbtxt**
+
+  - This will be loaded by triton servers
+  - This mainly describes the server and fastertransformer inference hyperparameters, like input, output parameters, model type, tensor para size, and so on.
+
+  We provide an example in `all_models/gptj/fastertransformer/config.pbtxt`.
+
+  The following table shows the details of config.pbtxt:
+
+  |      Classification      |              Name               |              Tensor/Parameter Shape              | Data Type |                                                           Description                                                           |
+  | :----------------------: | :-----------------------------: | :----------------------------------------------: | :-------: | :-----------------------------------------------------------------------------------------------------------------------------: |
+  |          input           |                                 |                                                  |           |                                                                                                                                 |
+  |                          |           `input_ids`           |          [batch_size, max_input_length]          |  uint32   |                                                  input ids after tokenization                                                   |
+  |                          |           `start_id`            |                   [batch_size]                   |  uint32   |          **Optional**. the id for start token for un-conditional generation task. In GPT-J, it is often same to end_id          |
+  |                          |            `end_id`             |                   [batch_size]                   |  uint32   |          **Optional**. the id for start token for un-conditional generation task. In GPT-J, it is often same to end_id          |
+  |                          |         `input_lengths`         |                   [batch_size]                   |  uint32   |                                               real sequence length of each input                                                |
+  |                          |      `request_output_len`       |                   [batch_size]                   |  uint32   |                                               how many tokens we want to generate                                               |
+  |                          |         `runtime_top_k`         |                   [batch_size]                   |  uint32   |                                           **Optional**. candidate number for sampling                                           |
+  |                          |         `runtime_top_p`         |                   [batch_size]                   |   float   |                                         **Optional**. candidate threshold for sampling                                          |
+  |                          |  `beam_search_diversity_rate`   |                   [batch_size]                   |   float   |               **Optional**. diversity rate for beam search in this [paper](https://arxiv.org/pdf/1611.08562.pdf)                |
+  |                          |          `temperature`          |                   [batch_size]                   |   float   |                                               **Optional**. temperature for logit                                               |
+  |                          |          `len_penalty`          |                   [batch_size]                   |   float   |                                             **Optional**. length penalty for logit                                              |
+  |                          |      `repetition_penalty`       |                   [batch_size]                   |   float   |                                           **Optional**. repetition penalty for logit                                            |
+  |                          |          `random_seed`          |                   [batch_size]                   |  uint64   |                                             **Optional**. random seed for sampling                                              |
+  |                          |      `is_return_log_probs`      |                   [batch_size]                   |   bool    |                              **Optional**. flag to return the log probs of generated token or not.                              |
+  |                          |          `beam_width`           |                   [batch_size]                   |  uint32   |                             **Optional**. beam size for beam search, using sampling if setting to 1                             |
+  |                          |        `bad_words_list`         |          [batch_size, 2, word_list_len]          |   int32   |  **Optional**. List of tokens (words) to never sample. Should be generated with `all_models/gpt/preprocessing/1/word_list.py`   |
+  |                          |        `stop_words_list`        |          [batch_size, 2, word_list_len]          |   int32   | **Optional**. List of tokens (words) that stop sampling. Should be generated with `all_models/gpt/preprocessing/1/word_list.py` |
+  |                          | `prompt_learning_task_name_ids` |                   [batch_size]                   |  uint32   |                                    **Optional**. task_name_id for each sequence in one batch                                    |
+  |          output          |                                 |                                                  |           |                                                                                                                                 |
+  |                          |          `output_ids`           |           [batch_size, beam_width, -1]           |  uint32   |                                                output ids before detokenization                                                 |
+  |                          |        `sequence_length`        |             [batch_size, beam_width]             |  uint32   |                                              final sequence lengths of output ids                                               |
+  |                          |         `cum_log_probs`         |             [batch_size, beam_width]             |   float   |                             **Optional**. cumulative log probability of output sentence (optional)                              |
+  |                          |       `output_log_probs`        | [batch_size, beam_width, request_output_seq_len] |   float   |                        **Optional**. It records the log probability of logits at each step for sampling.                        |
+  |        parameter         |                                 |                                                  |           |                                                                                                                                 |
+  |                          |       `tensor_para_size`        |                                                  |    int    |                                             parallelism ways in tensor parallelism                                              |
+  |                          |      `pipeline_para_size`       |                                                  |    int    |                                            parallelism ways in pipeline parallelism                                             |
+  |                          |          `model_type`           |                                                  |  string   |                                                         must use `GPT`                                                          |
+  |                          |          `model_type`           |                                                  |  string   |                                                        must use `GPT-J`                                                         |
+  |                          |     `model_checkpoint_path`     |                                                  |  string   |                                                the path to save weights of model                                                |
+  |                          |   `enable_custom_all_reduce`    |                                                  |   bool    |                                                 use custom all reduction or not                                                 |
+  | model_transaction_policy |                                 |                                                  |           |                                                                                                                                 |
+  |                          |           `decoupled`           |                                                  |   bool    |                      activate the decoupled (streaming) inference, see [#decoupled-mode](#decoupled-mode)                       |
+
+### Decoupled mode
+
+The backend provides a decoupled mode to get intermediate results as soon as they're ready. You can activate this mode by setting the `decoupled` switch to `True`. Then, each time the model has sampled a new token, Triton will send back results. Have a look at the client example in `tools/issue_request.py` to see how you can leverage this feature. You can run a test request with `python3 tools/issue_request.py tools/requests/sample_request_stream.json`.
+
+
+### Prepare Triton GPT-J model
+
+Following the guide [#setup](../README.md#setup) to prepare the docker image.
 
 Download GPT-J model checkpoint:
 
 ```shell
+docker run -it --rm --gpus=all -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
+# now in docker
+
 export WORKSPACE=$(pwd)
 export SRC_MODELS_DIR=${WORKSPACE}/models
-export TRITON_MODELS_STORE=${WORKSPACE}/triton-model-store
-cd ${WORKSPACE}
 git clone https://github.com/NVIDIA/FasterTransformer.git # Used for convert the checkpoint and triton output
 wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-vocab.json -P models
 wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-merges.txt -P models
 wget https://mystic.the-eye.eu/public/AI/GPT-J-6B/step_383500_slim.tar.zstd
-tar -axf step_383500_slim.tar.gz -C ${SRC_MODELS_DIR}
-mkdir ${TRITON_MODELS_STORE}/fastertransformer/1 -p
+mkdir ${SRC_MODELS_DIR}/gptj/ -p
+tar -axf step_383500_slim.tar.gz -C ${SRC_MODELS_DIR}/gptj/
+pip install scipy
 python3 ${WORKSPACE}/FasterTransformer/examples/pytorch/gptj/utils/gptj_ckpt_convert.py \
-        --output-dir ${TRITON_MODELS_STORE}/fastertransformer/1 \
-        --ckpt-dir ./${WORKSPACE}/FasterTransformer/step_383500/ \
-        --n-inference-gpus 8
+        --output-dir ${WORKSPACE}/all_models/gptj/fastertransformer/1 \
+        --ckpt-dir ${SRC_MODELS_DIR}/gptj/step_383500/ \
+        --n-inference-gpus 2
 ```
 
 We need to convert to format handled by FasterTransformer. 
@@ -125,41 +172,48 @@ If you want to run the model with tensor parallel size 8 and pipeline parallel s
 you should convert checkpoints with `--n-inference-gpus = [tensor_para_size], i.e. --n-inference-gpus = 8`. 
 We will convert it directly to directory structure which later we'd use as Triton model store.
 
-Then we will get the model weights (`xxx.bin`) and the config file of model (`config.ini`) in the `${TRITON_MODELS_STORE}/fastertransformer/1/8-gpu/`. 
+Then we will get the model weights (`xxx.bin`) and the config file of model (`config.ini`) in the `${WORKSPACE}/all_models/gptj/fastertransformer/1/2-gpu/`. 
 
 ## Run Serving on Single Node
 
 ### Run serving directly
 
+Follow [Prepare Triton GPT-J model](#prepare-triton-gpt-j-model) to prepare model, and assume we are in docker now.
+
+Set the `${WORKSPACE}/all_models/gptj/fastertransformer/config.pbtxt` properly, like setting `model_checkpoint_path` to `${WORKSPACE}/all_models/gptj/fastertransformer/1/2-gpu/`.
+
 ```bash
-docker run -it --rm --gpus=all -v ${WORKSPACE}:/ft_workspace ${TRITON_DOCKER_IMAGE} bash
-# now in docker
-CUDA_VISIBLE_DEVICES=0 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=$PWD/../all_models/gptj/ &
-python3 ft_workspace/fastertransformer_backend/tools/identity_test.py
+CUDA_VISIBLE_DEVICES=0,1 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=${WORKSPACE}/all_models/gptj/ &
+python3 ${WORKSPACE}/tools/gpt/identity_test.py
 ```
 
-You can modify `ft_workspace/fastertransformer_backend/tools/identity_test.py` to have different `batch size`, `input length` and `output length` in requests.
+You can modify `fastertransformer_backend/tools/gpt/identity_test.py` to have different `batch size`, `start length` and `output length` in requests. When the `batch size` or `start length` are different to default, remember to add `--random_start_ids` to initialize the start ids. For example
+
+```bash
+python3 ${WORKSPACE}/tools/gpt/identity_test.py --batch_size 32 --start_len 40 --output_len 100 --random_start_ids
+```
 
 * Note: If user encounter `[ERROR] world_size (4) should equal to tensor_para_size_ * pipeline_para_size_ (1 * 1 here)`, please check that the GPU number of your device and set the GPUs you want to use by `CUDA_VISIBLE_DEVICES`. 
 * Recommend modifying the SERVER_TIMEOUT of common/util.sh to longer time
 
 #### Run GPT-J end-to-end serving by Triton ensemble
 
-We provide an end-to-end example of GPT-J at `tools/end_to_end_test.py`. Users can run it by 
+We provide an end-to-end example of GPT at `fastertransformer_backend/tools/gpt/end_to_end_test.py`. Users can run it by 
 
 ```bash
-python ft_workspace/fastertransformer_backend/tools/end_to_end_test.py
+python3 ${WORKSPACE}/tools/gpt/end_to_end_test.py
 ```
 
 after launching the triton server.
 
-Regarding `bad_words_dict` and `stop_words_dict`, they should provide a single CSV-formatted string per item. The string then represent a list of words or expressions and each element is tokenized for further use by the model. Beware of tokenizer subtleties, for example, "word" and " word" are two distinct tokens. You can use the script in `all_models/gpt/preprocessing/1/word_list.py` to help you understand the tokenization.
+Regarding `bad_words_dict` and `stop_words_dict`, they should provide a single CSV-formatted string per item. The string then represents a list of words or expressions and each element is tokenized for further use by the model. Beware of tokenizer subtleties, for example, "word" and " word" are two distinct tokens. You can use the script in `all_models/gpt/preprocessing/1/word_list.py` to help you understand the tokenization.
 
 #### Evaluate the accuracy of GPT-J model on LAMBADA.
 
 ```bash
-wget https://github.com/cybertronai/bflm/raw/master/lambada_test.jsonl
-python ft_workspace/fastertransformer_backend/tools/evaluate_lambada.py --n-gram-disable
+wget https://github.com/cybertronai/bflm/raw/master/lambada_test.jsonl -P models
+export PYTHONPATH=${WORKSPACE}:$PYTHONPATH
+python3 ${WORKSPACE}/tools/gpt/evaluate_lambada.py --datasets_dir models/
 ```
 
 The results would be like
@@ -218,7 +272,7 @@ srun -w master-node-name --overlap --container-name multi-node-ft-triton --conta
 Finally, run the client in the master triton node:
 
 ```bash
-python3 fastertransformer_backend/tools/end_to_end_test.py
+python3 fastertransformer_backend/tools/gpt/end_to_end_test.py
 ```
 
 You can refer to `inference_server.log` on the login-node for the inference server log.

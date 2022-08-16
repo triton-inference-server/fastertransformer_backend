@@ -28,6 +28,11 @@ name: "fastertransformer"
 backend: "fastertransformer"
 default_model_filename: "gpt-j-6b"
 max_batch_size: 1024
+
+model_transaction_policy {
+  decoupled: False
+}
+
 input [
   {
     name: "input_ids"
@@ -103,7 +108,7 @@ input [
   },
   {
     name: "random_seed"
-    data_type: TYPE_INT32
+    data_type: TYPE_UINT64
     dims: [ 1 ]
     reshape: { shape: [ ] }
     optional: true
@@ -132,6 +137,13 @@ input [
     name: "stop_words_list"
     data_type: TYPE_INT32
     dims: [ 2, -1 ]
+    optional: true
+  },
+  {
+    name: "prompt_learning_task_name_ids"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
     optional: true
   }
 ]
@@ -176,69 +188,9 @@ parameters {
   }
 }
 parameters {
-  key: "max_seq_len"
+  key: "data_type"
   value: {
-    string_value: "528"
-  }
-}
-parameters {
-  key: "is_half"
-  value: {
-    string_value: "1"
-  }
-}
-parameters {
-  key: "head_num"
-  value: {
-    string_value: "16"
-  }
-}
-parameters {
-  key: "size_per_head"
-  value: {
-    string_value: "256"
-  }
-}
-parameters {
-  key: "inter_size"
-  value: {
-    string_value: "16384"
-  }
-}
-parameters {
-  key: "vocab_size"
-  value: {
-    string_value: "50400"
-  }
-}
-parameters {
-  key: "start_id"
-  value: {
-    string_value: "50256"
-  }
-}
-parameters {
-  key: "end_id"
-  value: {
-    string_value: "50256"
-  }
-}
-parameters {
-  key: "decoder_layers"
-  value: {
-    string_value: "28"
-  }
-}
-parameters {
-  key: "model_name"
-  value: {
-    string_value: "gptj-6-b"
-  }
-}
-parameters {
-  key: "rotary_embedding"
-  value: {
-    string_value: "64"
+    string_value: "fp16"
   }
 }
 parameters {

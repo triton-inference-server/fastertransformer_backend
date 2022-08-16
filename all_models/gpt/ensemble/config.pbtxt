@@ -1,6 +1,6 @@
 name: "ensemble"
 platform: "ensemble"
-max_batch_size: 8
+max_batch_size: 1024
 input [
   {
     name: "INPUT_0"
@@ -26,56 +26,91 @@ input [
     name: "runtime_top_k"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "runtime_top_p"
     data_type: TYPE_FP32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "beam_search_diversity_rate"
     data_type: TYPE_FP32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "temperature"
     data_type: TYPE_FP32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "len_penalty"
     data_type: TYPE_FP32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "repetition_penalty"
     data_type: TYPE_FP32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "random_seed"
-    data_type: TYPE_INT32
+    data_type: TYPE_UINT64
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "is_return_log_probs"
     data_type: TYPE_BOOL
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "beam_width"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "start_id"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    optional: true
   },
   {
     name: "end_id"
     data_type: TYPE_UINT32
     dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "prompt_learning_task_name_ids"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "request_prompt_embedding"
+    data_type: TYPE_FP16
+    dims: [ -1, -1 ]
+    optional: true
+  },
+  {
+    name: "request_prompt_lengths"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "request_prompt_type"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    optional: true
   }
 ]
 output [
@@ -156,6 +191,22 @@ ensemble_scheduling {
       input_map {
         key: "request_output_len"
         value: "_REQUEST_OUTPUT_LEN"
+      }
+      input_map {
+        key: "prompt_learning_task_name_ids"
+        value: "prompt_learning_task_name_ids"
+      }
+      input_map {
+        key: "request_prompt_embedding"
+        value: "request_prompt_embedding"
+      }
+      input_map {
+        key: "request_prompt_lengths"
+        value: "request_prompt_lengths"
+      }
+      input_map {
+        key: "request_prompt_type"
+        value: "request_prompt_type"
       }
       input_map {
           key: "runtime_top_k"
