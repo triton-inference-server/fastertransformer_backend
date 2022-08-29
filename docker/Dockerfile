@@ -19,7 +19,7 @@
 # backend together with tritonserver, start from here
 # -------------------------------------------------- #
 
-ARG TRITON_VERSION=22.05
+ARG TRITON_VERSION=22.06
 ARG BASE_IMAGE=nvcr.io/nvidia/tritonserver:${TRITON_VERSION}-py3
 FROM ${BASE_IMAGE} as server-builder
 
@@ -56,6 +56,12 @@ ADD src src
 ADD CMakeLists.txt CMakeLists.txt
 ADD README.md README.md
 ADD LICENSE LICENSE
+
+# Need to install openmpi here for some reason?
+RUN apt-get update -q && \
+    apt-get install -y --no-install-recommends libopenmpi-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 ARG FORCE_BACKEND_REBUILD=0
 RUN mkdir build -p && \
