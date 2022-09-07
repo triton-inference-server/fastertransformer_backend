@@ -476,7 +476,7 @@ ModelState::AutoCompleteConfig()
   // Auto-complete configuration is not supported since fastertransformer does
   // not store/capture sufficient model metadata so just log error instead.
   LOG_MESSAGE(
-      TRITONSERVER_LOG_VERBOSE,
+      TRITONSERVER_LOG_WARN,
       (std::string("skipping model configuration auto-complete for '") +
        Name() + "': not supported for fastertransformer backend")
           .c_str());
@@ -1017,7 +1017,7 @@ ModelInstanceState::ProcessRequests(
           TRITONSERVER_LOG_VERBOSE, (std::string("response is sent")).c_str());
     } else {
       LOG_MESSAGE(
-          TRITONSERVER_LOG_VERBOSE, (std::string("response is nullptr")).c_str());
+          TRITONSERVER_LOG_WARN, (std::string("response is nullptr")).c_str());
     }
   }
 
@@ -1070,7 +1070,7 @@ streaming_callback(
           (std::string("streaming response is sent")).c_str());
     } else {
       LOG_MESSAGE(
-          TRITONSERVER_LOG_VERBOSE,
+          TRITONSERVER_LOG_WARN,
           (std::string("streaming response is nullptr")).c_str());
     }
   }
