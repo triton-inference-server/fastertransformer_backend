@@ -158,7 +158,7 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
   triton::common::TritonJson::WriteBuffer buffer;
   ModelConfig().PrettyWrite(&buffer);
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("model configuration:\n") + buffer.Contents()).c_str());
 
   common::TritonJson::Value param;
@@ -649,7 +649,7 @@ ModelInstanceState::ModelInstanceState(
   int num_nodes = ft::mpi::getCommWorldSize();
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("Model name ") + ArtifactFilename()).c_str());
 
   triton::common::TritonJson::Value transaction_policy;
@@ -659,7 +659,7 @@ ModelInstanceState::ModelInstanceState(
   transaction_policy.MemberAsBool("decoupled", &is_decoupled_);
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("Use ") +
        (is_decoupled_ ? "DECOUPLED (streaming)" : "COUPLED (classic)") +
        " API.")
@@ -754,7 +754,7 @@ TRITONSERVER_Error* ModelInstanceState::ValidateInputs()
     }
 
     LOG_MESSAGE(
-        TRITONSERVER_LOG_WARN, (std::string(
+        TRITONSERVER_LOG_VERBOSE, (std::string(
                                     "Get input name: " + name + ", type: " +
                                     data_type + ", shape: " + str_shape)
                                     .c_str()));
@@ -796,7 +796,7 @@ ModelInstanceState::ValidateOutputs()
     }
 
     LOG_MESSAGE(
-        TRITONSERVER_LOG_WARN, (std::string(
+        TRITONSERVER_LOG_VERBOSE, (std::string(
                                     "Get output name: " + name + ", type: " +
                                     data_type + ", shape: " + str_shape)
                                     .c_str()));
@@ -810,7 +810,7 @@ ModelInstanceState::ProcessRequests(
     TRITONBACKEND_Request** requests, const uint32_t request_count)
 {
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("TRITONBACKEND_ModelExecute: Running ") + Name() + " with " +
        std::to_string(request_count) + " requests")
           .c_str());
@@ -884,7 +884,7 @@ ModelInstanceState::ProcessRequests(
   }
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN, (std::string("get total batch_size = ") +
+      TRITONSERVER_LOG_VERBOSE, (std::string("get total batch_size = ") +
                               std::to_string(total_batch_size))
                                  .c_str());
 
@@ -999,7 +999,7 @@ ModelInstanceState::ProcessRequests(
   SET_TIMESTAMP(exec_end_ns);
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("get response size = ") + std::to_string(responses.size()))
           .c_str());
 
@@ -1014,7 +1014,7 @@ ModelInstanceState::ProcessRequests(
               response, TRITONSERVER_RESPONSE_COMPLETE_FINAL, nullptr),
           "failed to send FasterTransformer backend response");
       LOG_MESSAGE(
-          TRITONSERVER_LOG_WARN, (std::string("response is sent")).c_str());
+          TRITONSERVER_LOG_VERBOSE, (std::string("response is sent")).c_str());
     } else {
       LOG_MESSAGE(
           TRITONSERVER_LOG_WARN, (std::string("response is nullptr")).c_str());
@@ -1066,7 +1066,7 @@ streaming_callback(
           TRITONBACKEND_ResponseSend(response, 0, nullptr),
           "failed to send FasterTransformer backend response");
       LOG_MESSAGE(
-          TRITONSERVER_LOG_WARN,
+          TRITONSERVER_LOG_VERBOSE,
           (std::string("streaming response is sent")).c_str());
     } else {
       LOG_MESSAGE(
@@ -1242,7 +1242,7 @@ ModelInstanceState::Execute(
     {
       int instance_local_id = gid - model_instance_device_id_start_;
       LOG_MESSAGE(
-          TRITONSERVER_LOG_WARN,
+          TRITONSERVER_LOG_VERBOSE,
           (std::string("before ThreadForward " + std::to_string(gid)))
               .c_str());
       threads.push_back(std::thread(
@@ -1250,7 +1250,7 @@ ModelInstanceState::Execute(
           &output_tensors_list[instance_local_id], gid,
           is_decoupled_ && gid == model_instance_device_id_start_, context));
       LOG_MESSAGE(
-          TRITONSERVER_LOG_WARN,
+          TRITONSERVER_LOG_VERBOSE,
           (std::string("after ThreadForward " + std::to_string(gid)))
               .c_str());
     }
@@ -1294,7 +1294,7 @@ ModelInstanceState::SetInputTensors(
       TRITONBACKEND_RequestInputCount(requests[0], &input_count));
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("get input count = ") + std::to_string(input_count))
           .c_str());
 
@@ -1366,7 +1366,7 @@ ModelInstanceState::SetInputTensors(
         memory_type_id);
 
     LOG_MESSAGE(
-        TRITONSERVER_LOG_WARN,
+        TRITONSERVER_LOG_VERBOSE,
         (std::string("collect name: ") + input_name +
          " size: " + std::to_string(batchn_byte_size) + " bytes")
             .c_str());
@@ -1377,14 +1377,14 @@ ModelInstanceState::SetInputTensors(
   }
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("the data is in ") +
        (*cuda_copy ? std::string("GPU") : std::string("CPU")))
           .c_str());
   // Finalize...
   *cuda_copy |= collector->Finalize();
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("the data is in ") +
        (*cuda_copy ? std::string("GPU") : std::string("CPU")))
           .c_str());
@@ -1409,7 +1409,7 @@ ModelInstanceState::ReadOutputTensors(
   int idx = 0;
   for (auto it = output_tensors->begin(); it != output_tensors->end(); ++it) {
     LOG_MESSAGE(
-        TRITONSERVER_LOG_WARN,
+        TRITONSERVER_LOG_VERBOSE,
         (std::string("Get output_tensors ") + std::to_string(idx) +
          std::string(": ") + std::string(it->first))
             .c_str());
@@ -1419,7 +1419,7 @@ ModelInstanceState::ReadOutputTensors(
     // Verify output datatype matches datatype from model config
     TRITONSERVER_DataType output_dtype = output.type;
     LOG_MESSAGE(
-        TRITONSERVER_LOG_WARN, (std::string("    output_type: ") +
+        TRITONSERVER_LOG_VERBOSE, (std::string("    output_type: ") +
                                 TRITONSERVER_DataTypeString(output_dtype))
                                    .c_str());
 
@@ -1440,7 +1440,7 @@ ModelInstanceState::ReadOutputTensors(
       }
     }
 
-    LOG_MESSAGE(TRITONSERVER_LOG_WARN, batch_shape_str.c_str());
+    LOG_MESSAGE(TRITONSERVER_LOG_VERBOSE, batch_shape_str.c_str());
     responder.ProcessTensor(
         it->first, output_dtype, batchn_shape, output_buffer,
         TRITONSERVER_MEMORY_GPU, model_instance_device_id_start_);
@@ -1456,7 +1456,7 @@ ModelInstanceState::ReadOutputTensors(
 #endif  // TRITON_ENABLE_GPU
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("PERFORMED GPU copy: ") +
        (cuda_copy ? std::string("YES") : std::string("NO")))
           .c_str());
@@ -1645,7 +1645,7 @@ TRITONBACKEND_ModelInstanceExecute(
   // another call to TRITONBACKEND_ModelInstanceExecute.
 
   LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
+      TRITONSERVER_LOG_VERBOSE,
       (std::string("model ") + model_state->Name() + ", instance " +
        instance_state->Name() + ", executing " + std::to_string(request_count) +
        " requests")
