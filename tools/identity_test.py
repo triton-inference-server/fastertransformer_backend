@@ -162,11 +162,14 @@ def send_requests(url, batch_size, input_start_ids, input_len, output_len, verbo
               recv_count = 0
               while not user_data._completed_requests.empty():
                 (result, error) = user_data._completed_requests.get()
+                if error is not None:
+                    print(error)
+                    exit()
                 recv_count+=1
-                if (recv_count == output_len):
+                if (recv_count == flags.output_len):
                   results.append(result)
 
-              if (recv_count != output_len):
+              if (recv_count != flags.output_len):
                   raise RuntimeError('Number of responses received doesnt match request_output_len')
 
             else:
