@@ -216,7 +216,7 @@ Multiple model instances on same GPUs will share the weights, so there will not 
 
 Set `count` here to start multiple model instances. Note `KIND_CPU` is the only choice here as the backend needs to take full control of how to distribute multiple model instances to all the visible GPUs.
 
-```json
+```pbtxt
 instance_group [
   {
     count: 8
