@@ -111,7 +111,7 @@ else()
   FetchContent_Declare(
     repo-ft
     GIT_REPOSITORY https://github.com/NVIDIA/FasterTransformer.git
-    GIT_TAG main
+    GIT_TAG release/v5.1.1
     GIT_SHALLOW ON
   )
 endif()
