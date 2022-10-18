@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
+env:
+  DOCKER_BUILD_OPT: ""
+  DOCKER_BUILD_IMAGE_NAME: fastertransformer-triton-backend
+  DOCKER_BUILD_IMAGE_TAG: pr-${{ github.event.pull_request.number }}
+
+jobs:
+
+  build:
+    runs-on: [self-hosted, fastertransformer-triton-backend, deploy]
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v2
+
+      - name: Build & Push
+        env:
+          DOCKER_BUILDKIT: 1
+        run: >-
+          ping -c 4 10.96.0.10 &&
+          curl docker.gladia.io &&
+          docker build --pull
+          ${{env.DOCKER_BUILD_OPT}}
+          -t ${DOCKER_GLADIA_FQDN}/${{env.DOCKER_BUILD_IMAGE_NAME}}:${{env.DOCKER_BUILD_IMAGE_TAG}}
+          . &&
+          docker push ${DOCKER_GLADIA_FQDN}/${{env.DOCKER_BUILD_IMAGE_NAME}}:${{env.DOCKER_BUILD_IMAGE_TAG}}
