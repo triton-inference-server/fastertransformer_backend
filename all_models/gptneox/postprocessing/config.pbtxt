@@ -6,6 +6,11 @@ input [
     name: "TOKENS_BATCH"
     data_type: TYPE_UINT32
     dims: [ -1, -1 ]
+  },
+  {
+    name: "sequence_length"
+    data_type: TYPE_UINT32
+    dims: [ -1 ]
   }
 ]
 output [
@@ -22,3 +27,17 @@ instance_group [
         kind: KIND_CPU
     }
 ]
+
+parameters {
+  key: "tokenizer_path"
+  value: {
+    string_value: "all_models/gptneox/postprocessing/1/20B_tokenizer.json"
+  }
+}
+
+parameters {
+  key: "tokenizer_type"
+  value: {
+    string_value: "hf"
+  }
+}

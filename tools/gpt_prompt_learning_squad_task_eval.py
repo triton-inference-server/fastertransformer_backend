@@ -168,17 +168,19 @@ def squad_task(args_dict):
                 inputs.append(prepare_tensor("request_prompt_type", request_prompt_type))
             else:
                 inputs.append(prepare_tensor("prompt_learning_task_name_ids", prompt_learning_task_name_ids))
-            
+
             print("set request")
             result = client.infer(model_name, inputs)
             print("get request")
             output_data = result.as_numpy("output_ids")
+            response_input_lengths = result.as_numpy("response_input_lengths")
             output_data = output_data.reshape([-1, output_data.shape[-1]])
+            response_input_lengths = response_input_lengths.reshape([-1, response_input_lengths.shape[-1]])
             output_batch_size = output_data.shape[0]
             output_data = output_data.tolist()
             input_length = input_length.tolist()
             for i in range(output_batch_size):
-                batch_input_len = input_length[i][0] - prompt_length
+                batch_input_len = response_input_lengths[i][0]
                 answer_len = len(answer_text_ids[i])
                 pred = output_data[i][batch_input_len:(batch_input_len + answer_len)]
                 label = answer_text_ids[i]

@@ -80,12 +80,14 @@ The following table shows the details of these settings:
 |                |        `is_sparse`         |                                         |      bool      |           Is using Ampere sparsity for inference. Still not supported yet.            |
 |                |    `is_remove_padding`     |                                         |      bool      |                           Is remove the padding of inputs.                            |
 
+* Note that the data type of `input_hidden_state` and `output_hidden_state` are determined by `data_type` of parameter automatically. 
+
 ### Prepare Triton Bert model store
 
 Download Bert model checkpoint:
 
 ```shell
-docker run -it --rm --gpus=all -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
+docker run -it --rm --gpus=all --shm-size=1g --ulimit memlock=-1 -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
 # now in docker
 export WORKSPACE=$(pwd)
 
@@ -111,7 +113,11 @@ Then we will get the model weights (`xxx.bin`) and the config file of model (`co
 
 ### Run serving directly
 
+Before launching server, we suggest run the gemm test first like what we mention [here](https://github.com/NVIDIA/FasterTransformer/blob/main/docs/bert_guide.md#run-fastertransformer-bert-on-c). The gemm test program is put at `/workspace/build/fastertransformer_backend/build/bin/bert_gemm`.
+
 ```bash
+sudo pip3 install torch==1.12.1+cu116 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
+/workspace/build/fastertransformer_backend/build/bin/bert_gemm 32 32 12 64 1 0 2
 CUDA_VISIBLE_DEVICES=0,1 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=${WORKSPACE}/all_models/bert/ &
 python3 ${WORKSPACE}/tools/bert/identity_test.py \
         --hf_ckpt_path ./bert-base-uncased/ \

@@ -150,7 +150,6 @@ def send_requests(url, batch_size, input_start_ids, input_len, output_len, verbo
             result = client.infer(model_name, inputs, sequence_id=flags.session_id, sequence_start=sequence_start, sequence_end=sequence_end)
             print("get request")
             results.append(result)
-            output_len = output_len + (flags.output_len + input_start_ids.shape[1])
 
         for i in range(num_session_steps):
             # Get the result from the initiated asynchronous inference request.

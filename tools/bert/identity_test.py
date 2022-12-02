@@ -171,6 +171,9 @@ if __name__ == '__main__':
                         default="fp32",
                         choices=["fp32", "fp16"],
                         help="The data type for inference")
+    parser.add_argument("--max_diff_threshold",
+                        type=float,
+                        help="Threshold of max differences")
 
     FLAGS = parser.parse_args()
     if (FLAGS.protocol != "http") and (FLAGS.protocol != "grpc"):
@@ -229,3 +232,5 @@ if __name__ == '__main__':
         print(f"[INFO] execution time: {s.mean(latencies)} ms")
     else:
         print(f"[INFO] execution time: {latencies[0]} ms")
+    if FLAGS.max_diff_threshold != None:
+        assert FLAGS.max_diff_threshold >= diff.abs().max()

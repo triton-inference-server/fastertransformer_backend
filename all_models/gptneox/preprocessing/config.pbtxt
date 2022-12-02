@@ -11,11 +11,13 @@ input [
         name: "BAD_WORDS_DICT"
         data_type: TYPE_STRING
         dims: [ -1 ]
+        optional: true
     },
     {
         name: "STOP_WORDS_DICT"
         data_type: TYPE_STRING
         dims: [ -1 ]
+        optional: true
     },
     {
         name: "REQUEST_OUTPUT_LEN"
@@ -62,3 +64,17 @@ instance_group [
         kind: KIND_CPU
     }
 ]
+
+parameters {
+  key: "tokenizer_path"
+  value: {
+    string_value: "all_models/gptneox/postprocessing/1/20B_tokenizer.json"
+  }
+}
+
+parameters {
+  key: "tokenizer_type"
+  value: {
+    string_value: "hf"
+  }
+}

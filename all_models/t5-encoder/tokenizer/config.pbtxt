@@ -1,0 +1,42 @@
+backend: "python"
+max_batch_size: 1024
+input [
+    {
+        name: "query"
+        data_type: TYPE_STRING
+        dims: [ -1 ]
+    }
+]
+output [
+    {
+        name: "input_ids"
+        data_type: TYPE_UINT32
+        dims: [ -1 ]
+    },
+    {
+        name: "request_input_len"
+        data_type: TYPE_UINT32
+        dims: [ 1 ]
+    }
+]
+
+instance_group [
+    {
+        count: 1
+        kind: KIND_CPU
+    }
+]
+
+parameters {
+  key: "model_max_length"
+  value: {
+    string_value: "512"
+  }
+}
+
+parameters {
+  key: "reference_model"
+  value: {
+    string_value: "t5-small"
+  }
+}

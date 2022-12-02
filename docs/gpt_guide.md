@@ -31,7 +31,7 @@
 The FasterTransformer GPT implementation are in [gpt_guide.md](https://github.com/NVIDIA/FasterTransformer/blob/main/docs/gpt_guide.md).
 
 ## Table Of Contents
- 
+
 - [FasterTransformer GPT Triton Backend](#fastertransformer-gpt-triton-backend)
   - [Table Of Contents](#table-of-contents)
   - [Introduction](#introduction)
@@ -47,13 +47,15 @@ The FasterTransformer GPT implementation are in [gpt_guide.md](https://github.co
       - [Run the Squad Evaluation based on NeMo GPT with prompt learning](#run-the-squad-evaluation-based-on-nemo-gpt-with-prompt-learning)
       - [Issue request directly](#issue-request-directly)
     - [Interactive Text Generation](#interactive-text-generation)
+    - [Run XGLM](#run-xglm)
+    - [Run BLOOM](#run-bloom)
   - [Run Triton server on multiple nodes](#run-triton-server-on-multiple-nodes)
     - [Prepare Triton model store for multi-node setup](#prepare-triton-model-store-for-multi-node-setup)
     - [Run on cluster with Enroot/Pyxis support](#run-on-cluster-with-enrootpyxis-support)
 
 ## Introduction
 
-This document describes how to serve the `GPT` model by FasterTransformer Triton backend. This backend is only an interface to call FasterTransformer in Triton. All implementation are in [FasterTransformer repo](https://github.com/NVIDIA/FasterTransformer). 
+This document describes how to serve the `GPT` model by FasterTransformer Triton backend. This backend is only an interface to call FasterTransformer in Triton. All implementation are in [FasterTransformer repo](https://github.com/NVIDIA/FasterTransformer).
 
 ## Setup Environment
 
@@ -119,6 +121,7 @@ The following table shows the details of config.pbtxt:
 |                          |      `repetition_penalty`       |                   [batch_size]                   |        float        |                                                                         **Optional**. repetition penalty for logit                                                                          |
 |                          |          `random_seed`          |                   [batch_size]                   |       uint64        |                                                                           **Optional**. random seed for sampling                                                                            |
 |                          |      `is_return_log_probs`      |                   [batch_size]                   |        bool         |                                                            **Optional**. flag to return the log probs of generated token or not.                                                            |
+|                          | `is_return_context_embeddings`  |                   [batch_size]                   |        bool         |                                                             **Optional**. flag to return the context tokens embeddings or not.                                                              |
 |                          |          `beam_width`           |                   [batch_size]                   |       uint32        |                                                           **Optional**. beam size for beam search, using sampling if setting to 1                                                           |
 |                          |           `start_id`            |                   [batch_size]                   |       uint32        |                                        **Optional**. the id for start token for un-conditional generation task. In GPT-J, it is often same to end_id                                        |
 |                          |            `end_id`             |                   [batch_size]                   |       uint32        |                                        **Optional**. the id for start token for un-conditional generation task. In GPT-J, it is often same to end_id                                        |
@@ -128,11 +131,16 @@ The following table shows the details of config.pbtxt:
 |                          |    `request_prompt_lengths`     |                  [batch_size],                   |       uint32        |                               **Optional**. Length of prefix soft prompt embedding. This describes how many tokens of soft prompt embedding in each sentence.                               |
 |                          |   `request_prompt_embedding`    |  [batch_size, max_prompt_length, hidden_units]   | float/half/bfloat16 | **Optional**. FT will concat them with results of embedding lookup kernel. For prefix soft prompt embedding, the type must be float; while for p/prompt tuning, the type is same to weight. |
 |                          |      `request_prompt_type`      |                   [batch_size]                   |       uint32        |                                            **Optional**. Prompt type of request. This is necessary when user pass the prompt embedding by input                                             |
+|                          |          `top_p_decay`          |                   [batch_size]                   |        float        |                                                                **Optional**. decay values for top_p factual-nucleus sampling                                                                |
+|                          |           `top_p_min`           |                   [batch_size]                   |        float        |                                                              **Optional**. min top_p values for top p factual-nucleus sampling                                                              |
+|                          |        `top_p_reset_ids`        |                   [batch_size]                   |       uint32        |                                                    **Optional**. reset ids for reseting top_p values for top p factual-nucleus sampling                                                     |
 |          output          |                                 |                                                  |                     |                                                                                                                                                                                             |
 |                          |          `output_ids`           |           [batch_size, beam_width, -1]           |       uint32        |                                                                              output ids before detokenization                                                                               |
 |                          |        `sequence_length`        |             [batch_size, beam_width]             |       uint32        |                                                                            final sequence lengths of output ids                                                                             |
+|                          |    `response_input_lengths`     |             [batch_size, beam_width]             |       uint32        |                                                                            final lengths of input ids in the concatenated output ids                                                        |
 |                          |         `cum_log_probs`         |             [batch_size, beam_width]             |        float        |                                                                 **Optional**. cumulative log probability of output sentence                                                                 |
 |                          |       `output_log_probs`        | [batch_size, beam_width, request_output_seq_len] |        float        |                                                      **Optional**. It records the log probability of logits at each step for sampling.                                                      |
+|                          |      `context_embeddings`       |      [batch_size, beam_width, hidden_units]      |        float        |                                                                       **Optional**. Sum of the input token embeddings                                                                       |
 |        parameter         |                                 |                                                  |                     |                                                                                                                                                                                             |
 |                          |       `tensor_para_size`        |                                                  |         int         |                                                                           parallelism ways in tensor parallelism                                                                            |
 |                          |      `pipeline_para_size`       |                                                  |         int         |                                                                          parallelism ways in pipeline parallelism                                                                           |
@@ -154,7 +162,7 @@ Following the guide [#setup](../README.md#setup) to prepare the docker image.
 Download GPT model checkpoint:
 
 ```shell
-docker run -it --rm --gpus=all -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
+docker run -it --rm --gpus=all --shm-size=1g --ulimit memlock=-1 -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
 # now in docker
 
 export WORKSPACE=$(pwd)
@@ -174,9 +182,9 @@ python3 ${WORKSPACE}/FasterTransformer/examples/pytorch/gpt/utils/megatron_ckpt_
         --head-num 16
 ```
 
-We need to convert to format handled by FasterTransformer. 
+We need to convert to format handled by FasterTransformer.
 If you want to run the model with tensor parallel size 8 and pipeline parallel size 2,
-you should convert checkpoints with `-infer_gpu_num = [tensor_para_size], i.e. -infer_gpu_num = 8`. 
+you should convert checkpoints with `-infer_gpu_num = [tensor_para_size], i.e. -infer_gpu_num = 8`.
 We will convert it directly to directory structure which later we'd use as Triton model store.
 
 Then we will get the model weights (`xxx.bin`) and the config file of model (`config.ini`) in the `${WORKSPACE}/all_models/gpt/fastertransformer/1/8-gpu/`.
@@ -196,11 +204,14 @@ However, there are some limitation for this features.
 
 ### Run serving directly
 
+Before launching server, we suggest run the gemm test first like what we mention [here](https://github.com/NVIDIA/FasterTransformer/blob/main/docs/gpt_guide.md#run-gpt). The gemm test program is put at `/workspace/build/fastertransformer_backend/build/bin/gpt_gemm`.
+
 Follow [Prepare Triton GPT model](#prepare-triton-gpt-model) to prepare model, and assume we are in docker now.
 
 Set the `${WORKSPACE}/all_models/gpt/fastertransformer/config.pbtxt` properly, like setting `model_checkpoint_path` to `${WORKSPACE}/all_models/gpt/fastertransformer/1/8-gpu/`.
 
 ```bash
+/workspace/build/fastertransformer_backend/build/bin/gpt_gemm 8 1 32 16 64 4096 50257 1 1 1
 CUDA_VISIBLE_DEVICES=0 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=${WORKSPACE}/all_models/gpt &
 python3 ${WORKSPACE}/tools/gpt/identity_test.py
 ```
@@ -211,12 +222,12 @@ You can modify `fastertransformer_backend/tools/gpt/identity_test.py` to have di
 python3 ${WORKSPACE}/tools/gpt/identity_test.py --batch_size 32 --start_len 40 --output_len 100 --random_start_ids
 ```
 
-* Note: If user encounter `[ERROR] world_size (4) should equal to tensor_para_size_ * pipeline_para_size_ (1 * 1 here)`, please check that the GPU number of your device and set the GPUs you want to use by `CUDA_VISIBLE_DEVICES`. 
+* Note: If user encounter `[ERROR] world_size (4) should equal to tensor_para_size_ * pipeline_para_size_ (1 * 1 here)`, please check that the GPU number of your device and set the GPUs you want to use by `CUDA_VISIBLE_DEVICES`.
 * Recommend modifying the SERVER_TIMEOUT of common/util.sh to longer time
 
 #### Run GPT end-to-end serving by Triton ensemble
 
-We provide an end-to-end example of GPT at `fastertransformer_backend/tools/gpt/end_to_end_test.py`. Users can run it by 
+We provide an end-to-end example of GPT at `fastertransformer_backend/tools/gpt/end_to_end_test.py`. Users can run it by
 
 ```bash
 python3 ${WORKSPACE}/tools/gpt/end_to_end_test.py
@@ -244,7 +255,7 @@ The results would be like
 
 [NeMo Prompt Learning Reference](https://docs.nvidia.com/deeplearning/nemo/user-guide/docs/en/main/nlp/prompt_learning.html)
 
-Note that you need to install [NeMo Packages](https://github.com/NVIDIA/NeMo#installation) in order to have dataset and tokenizers. 
+Note that you need to install [NeMo Packages](https://github.com/NVIDIA/NeMo#installation) in order to have dataset and tokenizers.
 
 ```bash
 python3 tools/gpt_prompt_learning_squad_task_eval.py
@@ -294,6 +305,34 @@ CUDA_VISIBLE_DEVICES=0 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tri
 python3 ${WORKSPACE}/tools/interactive_text_generation/identity_test.py --session_id 1 --num_session_steps 2
 ```
 
+### Run XGLM
+
+<!-- ```bash
+wget https://dl.fbaipublicfiles.com/fairseq/models/xglm/xglm.564M.tar.gz
+tar -zxvf  xglm.564M.tar.gz
+pip install fairseq
+PYTHONPATH=$PWD/_deps/repo-ft-src python3 _deps/repo-ft-src/examples/pytorch/gpt/utils/xglm_convert.py -o ./tmp/ -i ./564M/ -i_g 1
+// change `model_checkpoint_path` of `config.pbtxt` to `./tmp/1-gpu/`.
+``` -->
+
+```bash
+git lfs clone https://huggingface.co/facebook/xglm-564M
+PYTHONPATH=$PWD/../ python3 ../examples/pytorch/gpt/utils/huggingface_xglm_convert.py -o /data/hf/tmp/  -i ./xglm-564M/ -i_g 1
+# Note that change `model_checkpoint_path` of `config.pbtxt` to `./tmp/1-gpu/`.
+```
+
+### Run BLOOM
+We provide an end-to-end example of BLOOM at `all_models/bloom` and `tools/gpt/bloom_test.py`, which are almost the same with GPT. A user can prepare a pretrained checkpoint of BLOOM by
+```bash
+git lfs clone https://huggingface.co/bigscience/bloom-560m
+python3 {FT_DIR}/examples/pytorch/gpt/utils/huggingface_bloom_convert.py -o /data/hf/tmp/ -i ./bloom-560m/ -tp 1
+# Note that change `model_checkpoint_path` of `config.pbtxt` to `/data/hf/tmp/1-gpu/`.
+```
+and then similar to GPT we can run an example by
+```bash
+python3 ${WORKSPACE}/tools/gpt/bloom_test.py
+```
+
 ## Run Triton server on multiple nodes
 
 ### Prepare Triton model store for multi-node setup
@@ -320,7 +359,7 @@ salloc -A account_name -t 10:00:00 -N 2
 
 Then run the script shown below to start two nodes' server.
 -N and -n should be equal to the number of nodes because we start one process per node. If you need to run on two nodes, then -N 2 and -n 2.
-Remember to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)  if you run on multiple nodes. 
+Remember to change `tensor_para_size` and `pipeline_para_size` as suggested in [MPI Launching with Tensor Parallel size/ Pipeline Parallel Size Setting](#mpi-launching-with-tensor-parallel-size-and-pipeline-parallel-size-setting)  if you run on multiple nodes.
 
 ```bash
 WORKSPACE="/workspace" # the dir you build the docker

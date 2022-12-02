@@ -12,70 +12,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-# -------------------------------------------------- #
-# This is a Docker image dedicated to develop
-# FasterTransformer backend. If you don't want to build the
-# backend together with tritonserver, start from here
-# -------------------------------------------------- #
-
-ARG TRITON_VERSION=22.05
+ARG TRITON_VERSION=22.07
 ARG BASE_IMAGE=nvcr.io/nvidia/tritonserver:${TRITON_VERSION}-py3
-FROM ${BASE_IMAGE} as server-builder
+FROM ${BASE_IMAGE}
 
-RUN apt-key del 7fa2af80 && \
-    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub && \
-    apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu2004/x86_64/7fa2af80.pub && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends openssh-server zsh tmux mosh locales-all clangd sudo \
-        zip unzip wget build-essential autoconf autogen gdb python3.8 python3-pip python3-dev rapidjson-dev \
-        xz-utils zstd libz-dev && \
-    pip3 install torch==1.9.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html  && \
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends \
+        autoconf \
+        autogen \
+        clangd \
+        gdb \
+        git-lfs \
+        libb64-dev \
+        libz-dev \
+        locales-all \
+        mosh \
+        openssh-server \
+        python3-dev \
+        rapidjson-dev \
+        sudo \
+        tmux \
+        unzip \
+        zstd \
+        zip \
+        zsh
+RUN pip3 install torch==1.12.1+cu116 -f https://download.pytorch.org/whl/torch_stable.html && \
     pip3 install --extra-index-url https://pypi.ngc.nvidia.com regex fire tritonclient[all] && \
-    pip3 install transformers huggingface_hub tokenizers SentencePiece sacrebleu && \
-    apt-get clean && \
+    pip3 install transformers huggingface_hub tokenizers SentencePiece sacrebleu datasets tqdm omegaconf rouge_score && \
+    pip3 install cmake==3.24.3
+
+RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace/build/
-
-# CMake
-RUN CMAKE_VERSION=3.18 && \
-    CMAKE_BUILD=3.18.4 && \
-    wget -nv https://cmake.org/files/v${CMAKE_VERSION}/cmake-${CMAKE_BUILD}.tar.gz && \
-    tar -xf cmake-${CMAKE_BUILD}.tar.gz && \
-    cd cmake-${CMAKE_BUILD} && \
-    ./bootstrap --parallel=$(grep -c ^processor /proc/cpuinfo) -- -DCMAKE_USE_OPENSSL=OFF && \
-    make -j"$(grep -c ^processor /proc/cpuinfo)" install && \
-    cd /workspace/build/ && \
-    rm -rf /workspace/build/cmake-${CMAKE_BUILD}
-
 # backend build
-WORKDIR /workspace/build/fastertransformer_backend
-ADD cmake cmake
-ADD src src
-ADD CMakeLists.txt CMakeLists.txt
-ADD README.md README.md
-ADD LICENSE LICENSE
+ADD . /workspace/build/fastertransformer_backend
+RUN mkdir -p /workspace/build/fastertransformer_backend/build
 
+WORKDIR /workspace/build/fastertransformer_backend/build
 ARG FORCE_BACKEND_REBUILD=0
-RUN mkdir build -p && \
-    cd build && \
-    cmake \
+RUN cmake \
       -D CMAKE_EXPORT_COMPILE_COMMANDS=1 \
       -D CMAKE_BUILD_TYPE=Release \
       -D CMAKE_INSTALL_PREFIX=/opt/tritonserver \
       -D TRITON_COMMON_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
       -D TRITON_CORE_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
       -D TRITON_BACKEND_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
-      .. && \
-    make -j"$(grep -c ^processor /proc/cpuinfo)" install
+      ..
+RUN make -j"$(grep -c ^processor /proc/cpuinfo)" install
 
 ENV NCCL_LAUNCH_MODE=GROUP
-# set workspace
 ENV WORKSPACE /workspace
 WORKDIR /workspace
 
-RUN sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config
-RUN mkdir /var/run/sshd -p
+RUN sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/g' /etc/ssh/sshd_config && \
+    mkdir /var/run/sshd -p
 
-ADD . /workspace/fastertransformer_backend

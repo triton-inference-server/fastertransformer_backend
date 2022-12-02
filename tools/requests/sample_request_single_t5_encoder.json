@@ -1,0 +1,19 @@
+{
+    "request": [
+        {
+            "name": "input_ids",
+            "data": [[13959, 1566, 12, 2968, 10, 2059, 18, 476, 2741, 18, 667, 40, 26, 8528, 18961, 9651, 44, 1051, 5901, 13552]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "sequence_length",
+            "data": [[20]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "is_return_attentions",
+            "data": [[true]],
+            "dtype": "bool"
+        }
+    ]
+}

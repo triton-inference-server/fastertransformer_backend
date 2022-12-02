@@ -34,6 +34,7 @@ import statistics as s
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
 from tritonclient.utils import np_to_triton_dtype
+from functools import partial
 
 FIXED_START_IDS = np.array([
     [9915, 27221, 59, 77, 383, 1853, 3327, 1462],
@@ -57,6 +58,19 @@ FIXED_START_IDS = np.array([
 #    [464, 717, 640, 314, 2497, 262, 3807, 11],
 # ], np.uint32)
 
+if sys.version_info >= (3, 0):
+    import queue
+else:
+    import Queue as queue
+
+class UserData:
+    def __init__(self):
+        self._completed_requests = queue.Queue()
+
+# Callback function used for async_stream_infer()
+def completion_callback(user_data, result, error):
+    # passing error raise and handling out
+    user_data._completed_requests.put((result, error))
 
 def prepare_tensor(name, input, protocol):
     client_util = httpclient if protocol == "http" else grpcclient
@@ -132,10 +146,37 @@ def send_requests(url, batch_size, input_start_ids, input_len, output_len, verbo
                 prepare_tensor("stop_words_list", stop_word_list, flags.protocol),
             ]
 
-            print("set request")
-            result = client.infer(model_name, inputs)
-            print("get request")
-            results.append(result)
+            if (flags.decoupled):
+              print("set request")
+              user_data = UserData()
+              client.start_stream(partial(completion_callback, user_data))
+
+              client.async_stream_infer(
+                  model_name,
+                  inputs,
+                  request_id=str(1))
+
+              print("get request")
+              client.stop_stream()
+
+              recv_count = 0
+              while not user_data._completed_requests.empty():
+                (result, error) = user_data._completed_requests.get()
+                if error is not None:
+                    print(error)
+                    exit()
+                recv_count+=1
+                if (recv_count == flags.output_len):
+                  results.append(result)
+
+              if (recv_count != flags.output_len):
+                  raise RuntimeError('Number of responses received doesnt match request_output_len')
+
+            else:
+              print("set request")
+              result = client.infer(model_name, inputs)
+              print("get request")
+              results.append(result)
 
         for i in range(request_parallelism):
             # Get the result from the initiated asynchronous inference request.
@@ -183,6 +224,12 @@ if __name__ == '__main__':
                         required=False,
                         default=False,
                         help='Enable random start ids')
+    parser.add_argument('-d',
+                        '--decoupled',
+                        action="store_true",
+                        required=False,
+                        default=False,
+                        help='Use decoupled mode')
     parser.add_argument('-w',
                         '--warm_up',
                         action="store_true",

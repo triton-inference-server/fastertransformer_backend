@@ -55,9 +55,10 @@ Note that this is a research and prototyping tool, not a formal product or maint
 
 | Models   | FP16 | BF16 | Tensor parallel | Pipeline parallel |
 | -------- | ---- | ---- | --------------- | ----------------- |
-| GPT      | Yes  | Yes  | Yes             | Yes               |
+| GPT/OPT  | Yes  | Yes  | Yes             | Yes               |
+| BLOOM    | Yes  | Yes  | Yes             | Yes               |
 | GPT-J    | Yes  | Yes  | Yes             | Yes               |
-| T5       | Yes  | Yes  | Yes             | Yes               |
+| T5/UL2   | Yes  | Yes  | Yes             | Yes               |
 | GPT-NeoX | Yes  | Yes  | Yes             | Yes               |
 | BERT     | Yes  | Yes  | Yes             | Yes               |
 
@@ -136,6 +137,7 @@ But also you can build it manually in interactive session (ex during fixing code
 
 ```bash
 docker run -it \
+    –shm-size=1g –ulimit memlock=-1 \
     -v ${WORKSPACE}:/workspace \
     --name ft_backend_builder \
     ${TRITON_DOCKER_IMAGE} bash
@@ -242,8 +244,16 @@ Specifically `tools/issue_request.py` is a simple script that sends a request co
 
 ## Changelog
 
+Oct 2022
+- Support IA3 in T5 and T5-Encoder
+
+Sep 2022
+- Support T5-Encoder only backend
+- Support T5 prompt tuning and p tuning
+- Support factual-nucleus sampling ([link](https://arxiv.org/pdf/2206.04624.pdf))
+
 Aug 2022
-- Release **FasterTransformer backend v1.2**
+- **Release the FasterTransformer backend 1.2**.
 - Support for interactive generation
 
 July 2022
@@ -260,6 +270,7 @@ May 2022
 - Support optional input. (triton version must be after 22.05)
 
 April 2022
+- **Release the FasterTransformer backend 1.1**.
 - Support bfloat16 inference in GPT model.
 - Support Nemo Megatron T5 and Megatron-LM T5 model.
 - Support optional input in fastertransformer backends. (Only supported after Triton 22.01)

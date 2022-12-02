@@ -122,6 +122,9 @@ Generally, we need two configuration files to server the FasterTransformer model
   |                          |        `bad_words_list`         |          [batch_size, 2, word_list_len]          |   int32   |  **Optional**. List of tokens (words) to never sample. Should be generated with `all_models/gpt/preprocessing/1/word_list.py`   |
   |                          |        `stop_words_list`        |          [batch_size, 2, word_list_len]          |   int32   | **Optional**. List of tokens (words) that stop sampling. Should be generated with `all_models/gpt/preprocessing/1/word_list.py` |
   |                          | `prompt_learning_task_name_ids` |                   [batch_size]                   |  uint32   |                                    **Optional**. task_name_id for each sequence in one batch                                    |
+  |                          |          `top_p_decay`          |                   [batch_size]                   |   float   |                                  **Optional**. decay values for top_p factual-nucleus sampling                                  |
+  |                          |           `top_p_min`           |                   [batch_size]                   |   float   |                                **Optional**. min top_p values for top p factual-nucleus sampling                                |
+  |                          |        `top_p_reset_ids`        |                   [batch_size]                   |  uint32   |                      **Optional**. reset ids for reseting top_p values for top p factual-nucleus sampling                       |
   |          output          |                                 |                                                  |           |                                                                                                                                 |
   |                          |          `output_ids`           |           [batch_size, beam_width, -1]           |  uint32   |                                                output ids before detokenization                                                 |
   |                          |        `sequence_length`        |             [batch_size, beam_width]             |  uint32   |                                              final sequence lengths of output ids                                               |
@@ -149,7 +152,7 @@ Following the guide [#setup](../README.md#setup) to prepare the docker image.
 Download GPT-J model checkpoint:
 
 ```shell
-docker run -it --rm --gpus=all -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
+docker run -it --rm --gpus=all --shm-size=1g --ulimit memlock=-1 -v ${WORKSPACE}:${WORKSPACE} -w ${WORKSPACE} ${TRITON_DOCKER_IMAGE} bash
 # now in docker
 
 export WORKSPACE=$(pwd)
@@ -182,7 +185,10 @@ Follow [Prepare Triton GPT-J model](#prepare-triton-gpt-j-model) to prepare mode
 
 Set the `${WORKSPACE}/all_models/gptj/fastertransformer/config.pbtxt` properly, like setting `model_checkpoint_path` to `${WORKSPACE}/all_models/gptj/fastertransformer/1/2-gpu/`.
 
+Before launching server, we suggest run the gemm test first like what we mention [here](https://github.com/NVIDIA/FasterTransformer/blob/main/docs/gptj_guide.md#run-gpt-j). The gemm test program is put at `/workspace/build/fastertransformer_backend/build/bin/gpt_gemm`.
+
 ```bash
+/workspace/build/fastertransformer_backend/build/bin/gpt_gemm 8 1 32 16 256 16384 50400 1 2
 CUDA_VISIBLE_DEVICES=0,1 mpirun -n 1 --allow-run-as-root /opt/tritonserver/bin/tritonserver  --model-repository=${WORKSPACE}/all_models/gptj/ &
 python3 ${WORKSPACE}/tools/gpt/identity_test.py
 ```

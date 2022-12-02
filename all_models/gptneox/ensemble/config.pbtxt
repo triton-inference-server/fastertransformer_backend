@@ -93,6 +93,24 @@ input [
     data_type: TYPE_UINT32
     dims: [ 1 ]
     optional: true
+  },
+  {
+    name: "top_p_decay"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "top_p_min"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    optional: true
+  },
+  {
+    name: "top_p_reset_ids"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    optional: true
   }
 ]
 output [
@@ -230,6 +248,18 @@ ensemble_scheduling {
           key: "bad_words_list"
           value: "_BAD_WORDS_IDS"
       }
+      input_map {
+        key: "top_p_decay"
+        value: "top_p_decay"
+      }
+      input_map {
+        key: "top_p_min"
+        value: "top_p_min"
+      }
+      input_map {
+        key: "top_p_reset_ids"
+        value: "top_p_reset_ids"
+      }
       output_map {
         key: "output_ids"
         value: "_TOKENS_BATCH"
@@ -253,6 +283,10 @@ ensemble_scheduling {
       input_map {
         key: "TOKENS_BATCH"
         value: "_TOKENS_BATCH"
+      }
+      input_map {
+        key: "sequence_length"
+        value: "sequence_length"
       }
       output_map {
         key: "OUTPUT"

@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 import json
 import numpy as np
-import torch
 import triton_python_backend_utils as pb_utils
 
 from pathlib import Path
 from tokenizers import Tokenizer
-from torch.nn.utils.rnn import pad_sequence
 from typing import List, Union
 
 class HFTokenizer:
@@ -58,6 +56,14 @@ class TritonPythonModel:
         self.output_dtype= pb_utils.triton_string_to_numpy(
             output_config['data_type'])
 
+        if self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf_t5":
+            from transformers import AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_config["parameters"]["tokenizer_path"]["string_value"])
+        elif self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf":
+            self.tokenizer = HFTokenizer(str(self.model_config["parameters"]["tokenizer_path"]["string_value"]))
+        else:
+            assert False, f"{self.model_config['parameters']['tokenizer_type']['string_value']} is invalid"
+
     def execute(self, requests):
         """`execute` must be implemented in every Python model. `execute`
         function receives a list of pb_utils.InferenceRequest as the only
@@ -85,13 +91,14 @@ class TritonPythonModel:
         for idx, request in enumerate(requests):
             # Get input tensors 
             tokens_batch = pb_utils.get_input_tensor_by_name(request, 'TOKENS_BATCH').as_numpy()
+            sequence_length = pb_utils.get_input_tensor_by_name(request, 'sequence_length').as_numpy()
 
             # Reshape Input 
             # tokens_batch = tokens_batch.reshape([-1, tokens_batch.shape[0]])
             # tokens_batch = tokens_batch.T
 
             # Postprocessing output data.
-            outputs = self._postprocessing(tokens_batch)
+            outputs = self._postprocessing(tokens_batch, sequence_length)
 
             # Create output tensors. You need pb_utils.Tensor
             # objects to create pb_utils.InferenceResponse.
@@ -123,13 +130,15 @@ class TritonPythonModel:
         print('Cleaning up...')
 
 
-    def _postprocessing(self, tokens_batch):
+    def _postprocessing(self, tokens_batch, sequence_length):
         cur_folder = Path(__file__).parent
-        enc = HFTokenizer(str(cur_folder / "20B_tokenizer.json"))
 
         outputs = []
-        for beam_tokens in tokens_batch:
-            for tokens in beam_tokens:
-                output = enc.detokenize(tokens)
+        for beam_tokens, beam_len in zip(tokens_batch, sequence_length):
+            for tokens, len in zip(beam_tokens, beam_len):
+                if self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf_t5":
+                    output = self.tokenizer.decode(tokens[:len])
+                elif self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf":
+                    output = self.tokenizer.detokenize(tokens)
                 outputs.append(output.encode('utf8'))
         return outputs 

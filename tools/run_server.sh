@@ -25,12 +25,19 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# export CUDA_VISIBLE_DEVICES=0
+MODEL_PATH=$1
+
+if [ $MODEL_PATH ]; then
+  :
+else
+	echo "MODEL_PATH IS NOT EXISTS"
+    exit
+fi
 
 SERVER=/opt/tritonserver/bin/tritonserver
-SERVER_ARGS="--model-repository=$WORKSPACE/fastertransformer_backend/all_models"
+SERVER_ARGS="--model-repository=${MODEL_PATH}"
 SERVER_LOG="./inference_server.log"
-source $WORKSPACE/common/util.sh
+source ./tools/util.sh
 
 rm -fr inference_server.log
 

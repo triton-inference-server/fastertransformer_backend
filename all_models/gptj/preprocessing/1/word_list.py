@@ -16,22 +16,13 @@ import csv
 import numpy as np
 import os
 import sys
-import utils.gpt_token_encoder as encoder
+from transformers import AutoTokenizer
 
 from pathlib import Path
 
-def get_tokenizer(vocab_file=None, bpe_file=None):
-    cur_folder = Path(__file__).parent
-    vocab_file = vocab_file if vocab_file is not None else cur_folder / "gpt2-vocab.json"
-    bpe_file = bpe_file if bpe_file is not None else cur_folder / "gpt2-merges.txt"
-
-    tokenizer = encoder.get_encoder(str(vocab_file), str(bpe_file))
-
-    return tokenizer
-
-
 def to_word_list_format(word_dict):
-    tokenizer = get_tokenizer()
+    cache_dir = Path(__file__).parent / ".cache"
+    tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-j-6B", cache_dir=cache_dir)
 
     flat_ids = []
     offsets = []
