@@ -247,6 +247,14 @@ if __name__ == '__main__':
                 prepare_tensor("stop_words_list", output4, FLAGS.protocol, False),
             ]
 
+            # factual-nucleus arguments
+            # top_p_decay = 0.9 * np.ones([input0_data.shape[0], 1]).astype(np.float32)
+            # top_p_min = 0.5 * np.ones([input0_data.shape[0], 1]).astype(np.float32)
+            # top_p_reset_ids = 13 * np.ones([input0_data.shape[0], 1]).astype(np.uint32)
+            # inputs.append(prepare_tensor("top_p_decay", top_p_decay, FLAGS.protocol))
+            # inputs.append(prepare_tensor("top_p_min", top_p_min, FLAGS.protocol))
+            # inputs.append(prepare_tensor("top_p_reset_ids", top_p_reset_ids, FLAGS.protocol))
+
             # session starts
             if (i == 0):
                 inputs += [prepare_tensor("session_len", session_len, FLAGS.protocol),
@@ -271,8 +279,6 @@ if __name__ == '__main__':
                 print("===========================================\n\n\n")
             except Exception as e:
                 print(e)
-
-            request_output_len = (request_output_len + (OUTPUT_LEN + input_ids.shape[2])).astype(np.uint32)
 
     ######################
     model_name = "postprocessing"
@@ -368,6 +374,14 @@ if __name__ == '__main__':
                 prepare_tensor("end_id", end_ids, FLAGS.protocol),
             ]
 
+            # factual-nucleus arguments
+            # top_p_decay = 0.9 * np.ones([input0_data.shape[0], 1]).astype(np.float32)
+            # top_p_min = 0.5 * np.ones([input0_data.shape[0], 1]).astype(np.float32)
+            # top_p_reset_ids = 13 * np.ones([input0_data.shape[0], 1]).astype(np.uint32)
+            # inputs.append(prepare_tensor("top_p_decay", top_p_decay, FLAGS.protocol))
+            # inputs.append(prepare_tensor("top_p_min", top_p_min, FLAGS.protocol))
+            # inputs.append(prepare_tensor("top_p_reset_ids", top_p_reset_ids, FLAGS.protocol))
+
             # session starts
             if (i == 0):
                 inputs += [prepare_tensor("session_len", session_len, FLAGS.protocol),
@@ -387,6 +401,3 @@ if __name__ == '__main__':
                     print(result.as_numpy("output_log_probs"))
             except Exception as e:
                 print(e)
-
-
-            output0_len = (output0_len + (OUTPUT_LEN + input0_data.shape[1])).astype(np.uint32)

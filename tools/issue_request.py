@@ -56,7 +56,7 @@ def deep_update(source, overrides):
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument("request_file", metavar="request-file")
+    parser.add_argument("request_file", nargs="?", default=None, metavar="request-file")
     parser.add_argument("--params")
     args = parser.parse_args()
 
@@ -71,11 +71,12 @@ def generate_parameters(args):
         'verbose': False,
         'stream_api': False,
     }
-    params = {'config': DEFAULT_CONFIG}
+    params = {'config': DEFAULT_CONFIG, 'request': []}
 
-    with open(args.request_file) as f:
-        file_params = json.load(f)
-    deep_update(params, file_params)
+    if args.request_file is not None:
+        with open(args.request_file) as f:
+            file_params = json.load(f)
+        deep_update(params, file_params)
 
     args_params = json.loads(args.params) if args.params else {}
     deep_update(params, args_params)

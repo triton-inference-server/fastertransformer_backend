@@ -1,0 +1,89 @@
+{
+    "request": [
+        {
+            "name": "input_ids",
+            "data": [[13959, 1566, 12, 2968, 10, 2059, 18, 476, 2741, 18, 667, 40, 26, 8528, 18961, 9651, 44, 1051, 5901, 13552]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "sequence_length",
+            "data": [[20]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "max_output_len",
+            "data": [[128]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "beam_search_diversity_rate",
+            "data": [[0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "temperature",
+            "data": [[1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "len_penalty",
+            "data": [[1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "repetition_penalty",
+            "data": [[1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "random_seed",
+            "data": [[0]],
+            "dtype": "uint64"
+        },
+        {
+            "name": "is_return_log_probs",
+            "data": [[true]],
+            "dtype": "bool"
+        },
+        {
+            "name": "beam_width",
+            "data": [[1]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "runtime_top_k",
+            "data": [[1]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "runtime_top_p",
+            "data": [[1.0]],
+            "dtype": "float32"
+        },
+        {
+            "name": "start_id",
+            "data": [[0]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "end_id",
+            "data": [[1]],
+            "dtype": "uint32"
+        },
+        {
+            "name": "stop_words_list",
+            "data": [[[0], [-1]]],
+            "dtype": "int32"
+        },
+        {
+            "name": "bad_words_list",
+            "data": [[[0], [-1]]],
+            "dtype": "int32"
+        },
+        {
+            "name": "ia3_tasks",
+            "data": [[0]],
+            "dtype": "int32"
+        }
+    ]
+}

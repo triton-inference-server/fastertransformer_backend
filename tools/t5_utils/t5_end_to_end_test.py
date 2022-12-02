@@ -77,6 +77,7 @@ def translate(args_dict):
     topk = args_dict['sampling_topk']
     topp = args_dict['sampling_topp']
     maximum_output_length = args_dict['maximum_output_length']
+    max_ite = args_dict['max_iteration']
 
     tokenizer = T5Tokenizer.from_pretrained(args_dict['model'])
     fast_tokenizer = PreTrainedTokenizerFast.from_pretrained(args_dict['model'])
@@ -104,6 +105,7 @@ def translate(args_dict):
             prev = 0
             start_time = datetime.now()
             results = []
+            ite_idx = 0
             while prev < len(src_text):
                 input_texts = src_text[prev:prev+batch_size]
                 prev += batch_size
@@ -145,11 +147,22 @@ def translate(args_dict):
                     prepare_tensor("bad_words_list", bad_words_ids, args_dict["protocol"]),
                     prepare_tensor("stop_words_list", stop_words_ids, args_dict["protocol"]),
                 ]
+
+                # factual-nucleus arguments
+                # top_p_decay = 0.9 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                # top_p_min = 0.5 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                # top_p_reset_ids = 13 * np.ones([input_ids.shape[0], 1]).astype(np.uint32)
+                # inputs.append(prepare_tensor("top_p_decay", top_p_decay, args_dict["protocol"]))
+                # inputs.append(prepare_tensor("top_p_min", top_p_min, args_dict["protocol"]))
+                # inputs.append(prepare_tensor("top_p_reset_ids", top_p_reset_ids, args_dict["protocol"]))
                 
                 print("set request")
                 result = client.infer(model_name, inputs)
                 print("get request")
                 results.append(result)
+                ite_idx += 1
+                if ite_idx > max_ite:
+                    break
                 
             for result in results:
                 ft_decoding_outputs = result.as_numpy("output_ids")
@@ -180,6 +193,9 @@ def translate(args_dict):
             continue
         print("[INFO] {} translates {} batches taking {:.2f} sec to translate {} tokens, BLEU score: {:.2f}, {:.0f} tokens/sec.".format(
                 t.name, t.batch_num, t.execution_time, t.bleu_score.sys_len, t.bleu_score.score, t.bleu_score.sys_len / t.execution_time))
+    
+        if args_dict["BLEU_threshold"] != None:
+            assert t.bleu_score.score >= args_dict["BLEU_threshold"], f"[ERROR] {t.name} test fail!"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -206,6 +222,10 @@ if __name__ == "__main__":
                         default='http',
                         help='Protocol ("http"/"grpc") used to ' +
                         'communicate with inference service. Default is "http".')
+    parser.add_argument('--BLEU_threshold', type=float,
+                        help='Threshold of FT BLEU score')
+    parser.add_argument('-max_ite', '--max_iteration', type=int, default=100000, metavar='NUMBER',
+                        help='Maximum iteraiton for translation, default is 100000 (as large as possible to run all test set).')
     args = parser.parse_args()
 
     translate(vars(args))

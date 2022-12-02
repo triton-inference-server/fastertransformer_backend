@@ -57,6 +57,8 @@
 #include "src/fastertransformer/triton_backend/multi_gpu_gpt/ParallelGptTritonModelInstance.h"
 #include "src/fastertransformer/triton_backend/t5/T5TritonModel.h"
 #include "src/fastertransformer/triton_backend/t5/T5TritonModelInstance.h"
+#include "src/fastertransformer/triton_backend/t5-encoder/T5EncoderTritonModel.h"
+#include "src/fastertransformer/triton_backend/t5-encoder/T5EncoderTritonModelInstance.h"
 #include "src/fastertransformer/triton_backend/transformer_triton_backend.hpp"
 #include "src/fastertransformer/utils/Tensor.h"
 #include "src/fastertransformer/utils/cuda_bf16_wrapper.h"
@@ -75,6 +77,19 @@ namespace triton { namespace backend { namespace fastertransformer_backend {
       return;                                                          \
     }                                                                  \
   } while (false)
+
+// Ragged Baching
+
+struct RaggedBatchingParams {
+  bool is_input_ragged = false;
+  int32_t max_seq_length = 0;
+  int32_t max_elements_per_seq = 0;
+  const int32_t* batch_input_ptr = nullptr;
+  size_t batch_intput_size = 0;
+  size_t total_input_elements = 0;
+};
+
+using RaggedBatchingParam_Map = std::unordered_map<std::string, RaggedBatchingParams>;
 
 //
 // ModelState
@@ -103,17 +118,25 @@ class ModelState : public BackendModel {
   int GetInstanceId() { return current_model_instance_id++; };
   int GetInstanceGroupCount() { return instance_group_count; };
   bool SequenceBatchingEnabled() { return sequence_batching_enabled; };
+  bool DynamicBatchingEnabled() { return dynamic_batching_enabled; };
   std::shared_ptr<AbstractTransformerModel> GetFtModel() { return ft_model; };
 
  private:
   ModelState(TRITONBACKEND_Model* triton_model);
   TRITONSERVER_Error* AutoCompleteConfig();
+  std::string GetParameter(const char* parameter);
   int current_model_instance_id = 0;
   bool sequence_batching_enabled = false;
+  bool dynamic_batching_enabled = false;
   int instance_group_count = 1;
   std::shared_ptr<AbstractTransformerModel> ft_model;
   int node_id, gpu_size, world_size, tp_pp_size;
   std::vector<cudaStream_t> streams_;
+
+  std::shared_ptr<AbstractTransformerModel> ModelFactory(
+      common::TritonJson::Value &param,
+      const std::string         &model_filename);
+
 };
 
 TRITONSERVER_Error*
@@ -129,10 +152,12 @@ ModelState::Create(TRITONBACKEND_Model* triton_model, ModelState** state)
     RETURN_IF_ERROR(ex.err_);
   }
 
-  // Auto-complete the configuration if requested...
+  // Auto-complete the configuration if requested, or T5-Encoder
   bool auto_complete_config = false;
   RETURN_IF_ERROR(TRITONBACKEND_ModelAutoCompleteConfig(
       triton_model, &auto_complete_config));
+  auto_complete_config |= (*state)->GetParameter("model_type") == "T5-Encoder" ||
+    (*state)->GetParameter("model_type") == "bert";
   if (auto_complete_config) {
     RETURN_IF_ERROR((*state)->AutoCompleteConfig());
 
@@ -149,6 +174,154 @@ ModelState::Create(TRITONBACKEND_Model* triton_model, ModelState** state)
   return nullptr;  // success
 }
 
+std::string param_get(common::TritonJson::Value &param,
+                      const char*                field,
+                      const std::string         &fallback = "")
+{
+  common::TritonJson::Value key;
+  std::string value = fallback;
+  param.MemberAsObject(field, &key);
+  key.MemberAsString("string_value", &value);
+  return value;
+}
+
+int param_get_int(common::TritonJson::Value &param, const char* field, int fallback=0)
+{
+  int ret = fallback;
+  try {
+    ret = std::stoi(param_get(param, field));
+  }
+  catch (std::invalid_argument& ia) {
+    LOG_MESSAGE(
+        TRITONSERVER_LOG_ERROR,
+        (std::string("Invalid configuration argument '") + field +
+         "': " + ia.what())
+        .c_str());
+  }
+  return ret;
+}
+
+float param_get_float(common::TritonJson::Value &param, const char* field, float fallback=0.0)
+{
+  float ret = fallback;
+  try {
+    ret = std::stof(param_get(param, field));
+  }
+  catch (std::invalid_argument& ia) {
+    LOG_MESSAGE(
+        TRITONSERVER_LOG_ERROR,
+        (std::string("Invalid configuration argument '") + field +
+         "': " + ia.what())
+        .c_str());
+  }
+  return ret;
+}
+
+bool param_get_bool(common::TritonJson::Value &param, const char* field, bool fallback=false)
+{
+  return static_cast<bool>(param_get_int(param, field, static_cast<int>(fallback)));
+}
+
+std::shared_ptr<AbstractTransformerModel> ModelState::ModelFactory(
+    common::TritonJson::Value &param,
+    const std::string         &model_filename)
+{
+  std::shared_ptr<AbstractTransformerModel> ft_model;
+
+  const std::string model_dir  = param_get(
+      param,
+      "model_checkpoint_path",
+      JoinPath({RepositoryPath(), std::to_string(Version()), model_filename}));
+  const std::string model_type = param_get(param, "model_type", "GPT");
+  const std::string data_type  = param_get(param, "data_type");
+  const int         tp         = param_get_int(param, "tensor_para_size");
+  const int         pp         = param_get_int(param, "pipeline_para_size");
+  const int         custom_ar  = param_get_int(param, "enable_custom_all_reduce");
+
+  const std::string dt_message = std::string("Invalid configuration argument 'data_type': ") + data_type;
+
+  if (model_type == "GPT") {
+    const int         int8_mode  = param_get_int(param, "int8_mode");
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<ParallelGptTritonModel<half>>(tp, pp, custom_ar, model_dir, int8_mode);
+#ifdef ENABLE_BF16
+    } else if (data_type == "bf16") {
+      ft_model = std::make_shared<ParallelGptTritonModel<__nv_bfloat16>>(
+          tp, pp, custom_ar, model_dir, int8_mode);
+#endif
+    } else if (data_type == "fp32") {
+      ft_model = std::make_shared<ParallelGptTritonModel<float>>(tp, pp, custom_ar, model_dir, int8_mode);
+    } else {
+      LOG_MESSAGE(TRITONSERVER_LOG_ERROR, dt_message.c_str());
+    }
+  } else if (model_type == "GPT-J") {
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<GptJTritonModel<half>>(tp, pp, custom_ar, model_dir);
+#ifdef ENABLE_BF16
+    } else if (data_type == "bf16") {
+      ft_model = std::make_shared<GptJTritonModel<__nv_bfloat16>>(tp, pp, custom_ar, model_dir);
+#endif
+    } else if (data_type == "fp32") {
+      ft_model = std::make_shared<GptJTritonModel<float>>(tp, pp, custom_ar, model_dir);
+    } else {
+      LOG_MESSAGE(TRITONSERVER_LOG_ERROR, dt_message.c_str());
+    }
+  } else if (model_type == "GPT-NeoX") {
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<GptNeoXTritonModel<half>>(tp, pp, custom_ar, model_dir);
+    } else {
+      ft_model = std::make_shared<GptNeoXTritonModel<float>>(tp, pp, custom_ar, model_dir);
+    }
+  } else if (model_type == "T5") {
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<T5TritonModel<half>>(tp, pp, custom_ar, model_dir, 0);
+#ifdef ENABLE_BF16
+    } else if (data_type == "bf16") {
+      ft_model = std::make_shared<T5TritonModel<__nv_bfloat16>>(tp, pp, custom_ar, model_dir, 0);
+#endif
+    } else if (data_type == "fp32") {
+      ft_model = std::make_shared<T5TritonModel<float>>(tp, pp, custom_ar, model_dir, 0);
+    } else {
+      LOG_MESSAGE(TRITONSERVER_LOG_ERROR, dt_message.c_str());
+    }
+  } else if (model_type == "T5-Encoder") {
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<T5EncoderTritonModel<half>>(tp, pp, custom_ar, model_dir, 0);
+#ifdef ENABLE_BF16
+    } else if (data_type == "bf16") {
+      ft_model = std::make_shared<T5EncoderTritonModel<__nv_bfloat16>>(tp, pp, custom_ar, model_dir, 0);
+#endif
+    } else if (data_type == "fp32") {
+      ft_model = std::make_shared<T5EncoderTritonModel<float>>(tp, pp, custom_ar, model_dir, 0);
+    } else {
+      LOG_MESSAGE(TRITONSERVER_LOG_ERROR, dt_message.c_str());
+    }
+  } else if (model_type == "bert") {
+    const int is_sparse      = param_get_bool(param,"is_sparse", false);
+    const int remove_padding = param_get_bool(param,"is_remove_padding", false);
+    const int         int8_mode  = param_get_int(param, "int8_mode");
+
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<BertTritonModel<half>>(
+            tp, pp, custom_ar, model_dir, int8_mode, is_sparse, remove_padding);
+    } else if (data_type == "fp32") {
+      ft_model = std::make_shared<BertTritonModel<float>>(
+            tp, pp, custom_ar, model_dir, int8_mode, is_sparse, remove_padding);
+#ifdef ENABLE_BF16
+    } else if (data_type == "bf16") {
+      ft_model = std::make_shared<BertTritonModel<__nv_bfloat16>>(
+            tp, pp, custom_ar, model_dir, int8_mode, is_sparse, remove_padding);
+#endif
+    }
+  } else {
+    THROW_IF_BACKEND_MODEL_ERROR(TRITONSERVER_ErrorNew(TRITONSERVER_ERROR_UNSUPPORTED,
+          ("Unknown model \"" + model_type + "\"").c_str()));
+  }
+
+  return ft_model;
+}
+
+
 ModelState::ModelState(TRITONBACKEND_Model* triton_model)
     : BackendModel(triton_model, true)
 {
@@ -163,41 +336,6 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
 
   common::TritonJson::Value param;
   model_config_.MemberAsObject("parameters", &param);
-  auto param_get = [&](const char* field) {
-    common::TritonJson::Value key;
-    std::string value;
-    param.MemberAsObject(field, &key);
-    key.MemberAsString("string_value", &value);
-    return value;
-  };
-  auto param_get_int = [&](const char* field) {
-    int ret = 0;
-    try {
-      ret = std::stoi(param_get(field));
-    }
-    catch (std::invalid_argument& ia) {
-      LOG_MESSAGE(
-          TRITONSERVER_LOG_ERROR,
-          (std::string("Invalid configuration argument '") + field +
-           "': " + ia.what())
-              .c_str());
-    }
-    return ret;
-  };
-  auto param_get_float = [&](const char* field) {
-    float ret = 0.0;
-    try {
-      ret = std::stof(param_get(field));
-    }
-    catch (std::invalid_argument& ia) {
-      LOG_MESSAGE(
-          TRITONSERVER_LOG_ERROR,
-          (std::string("Invalid configuration argument '") + field +
-           "': " + ia.what())
-              .c_str());
-    }
-    return ret;
-  };
 
   // instance groups
   triton::common::TritonJson::Value instance_group, instance_obj,
@@ -224,7 +362,7 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
 
   // instance group validation
   bool multi_node_enabled = num_nodes > 1;
-  tp_pp_size = param_get_int("tensor_para_size") * param_get_int("pipeline_para_size");
+  tp_pp_size = param_get_int(param, "tensor_para_size") * param_get_int(param, "pipeline_para_size");
   gpu_size = ft::getDeviceCount();
   world_size = gpu_size * num_nodes;
   int model_instance_size = num_nodes > 1 ? gpu_size : tp_pp_size;
@@ -242,8 +380,8 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
   model_config_.MemberAsInt("max_batch_size", &max_batch_size);
 
   // sequence batching
-  triton::common::TritonJson::Value squence_batching;
-  sequence_batching_enabled = ModelConfig().Find("sequence_batching", &squence_batching);
+  triton::common::TritonJson::Value sequence_batching;
+  sequence_batching_enabled = ModelConfig().Find("sequence_batching", &sequence_batching);
   std::string sequence_batching_log = sequence_batching_enabled ? "enabled" : "disabled";
   LOG_MESSAGE(TRITONSERVER_LOG_INFO, (std::string("Sequence Batching: ") + sequence_batching_log).c_str());
   if (sequence_batching_enabled && max_batch_size != 1) {
@@ -251,160 +389,24 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
       "Sequence Batching for interactive text generation: only supports max batch size = 1 currently !"));
   }
 
+  // dynamic batching
+  triton::common::TritonJson::Value dynamic_batching;
+  dynamic_batching_enabled = ModelConfig().Find("dynamic_batching", &dynamic_batching);
+  std::string dynamic_batching_log = dynamic_batching_enabled ? "enabled" : "disabled";
+  LOG_MESSAGE(TRITONSERVER_LOG_INFO, (std::string("Dynamic Batching: ") + dynamic_batching_log).c_str());
+  if (dynamic_batching_enabled && sequence_batching_enabled) {
+    THROW_IF_BACKEND_MODEL_ERROR(TRITONSERVER_ErrorNew(TRITONSERVER_ERROR_UNSUPPORTED,
+      "Sequence Batching cannot work with dynamic batching at the same time !"));
+  }
+
   std::string model_filename;
   model_config_.MemberAsString("default_model_filename", &model_filename);
 
-  model_filename =
-      model_filename == ""
-          ? std::to_string(param_get_int("tensor_para_size")) + "-gpu"
-          : model_filename;
-
-  std::string model_dir =
-      param_get("model_checkpoint_path") == ""
-          ? JoinPath(
-                {RepositoryPath(), std::to_string(Version()), model_filename})
-          : param_get("model_checkpoint_path");
-
-  std::string model_type =
-      param_get("model_type") == "" ? "GPT" : param_get("model_type");
-
-  std::string data_type;
-  if (model_type == "GPT" || model_type == "GPT-J" ||
-      model_type == "GPT-NeoX" || model_type == "T5" || model_type == "bert") {
-    data_type = param_get("data_type");
+  if (model_filename == "") {
+    model_filename = std::to_string(param_get_int(param, "tensor_para_size")) + "-gpu";
   }
 
-  if (model_type == "GPT") {
-    if (data_type == "fp16") {
-      ft_model.reset(new ParallelGptTritonModel<half>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir,
-          param_get_int("int8_mode")));
-#ifdef ENABLE_BF16
-    } else if (data_type == "bf16") {
-      ft_model.reset(new ParallelGptTritonModel<__nv_bfloat16>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir,
-          param_get_int("int8_mode")));
-#endif
-    } else if (data_type == "fp32") {
-      ft_model.reset(new ParallelGptTritonModel<float>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir,
-          param_get_int("int8_mode")));
-    } else {
-      LOG_MESSAGE(
-          TRITONSERVER_LOG_ERROR,
-          (std::string("Invalid configuration argument 'data_type': ") +
-           data_type)
-              .c_str());
-    }
-  } else if (model_type == "GPT-J") {
-    if (data_type == "fp16") {
-      ft_model.reset(new GptJTritonModel<half>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir));
-#ifdef ENABLE_BF16
-    } else if (data_type == "bf16") {
-      ft_model.reset(new GptJTritonModel<__nv_bfloat16>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir));
-#endif
-    } else if (data_type == "fp32") {
-      ft_model.reset(new GptJTritonModel<float>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir));
-    } else {
-      LOG_MESSAGE(
-          TRITONSERVER_LOG_ERROR,
-          (std::string("Invalid configuration argument 'data_type': ") +
-           data_type)
-              .c_str());
-    }
-  } else if (model_type == "GPT-NeoX") {
-    if (data_type == "fp16") {
-      ft_model.reset(new GptNeoXTritonModel<half>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir));
-    } else {
-      ft_model.reset(new GptNeoXTritonModel<float>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir));
-    }
-  } else if (model_type == "GPT-NeoX") {
-    if (data_type == "fp16") {
-      ft_model.reset(new GptNeoXTritonModel<half>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir));
-    } else {
-      ft_model.reset(new GptNeoXTritonModel<float>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir));
-    }
-  } else if (model_type == "T5") {
-    if (data_type == "fp16") {
-      ft_model.reset(new T5TritonModel<half>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir, 0));
-#ifdef ENABLE_BF16
-    } else if (data_type == "bf16") {
-      ft_model.reset(new T5TritonModel<__nv_bfloat16>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir, 0));
-#endif
-    } else if (data_type == "fp32") {
-      ft_model.reset(new T5TritonModel<float>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir, 0));
-    } else {
-      LOG_MESSAGE(
-          TRITONSERVER_LOG_ERROR,
-          (std::string("Invalid configuration argument 'data_type': ") +
-           data_type)
-              .c_str());
-    }
-  } else if (model_type == "bert") {
-    if (data_type == "fp16") {
-      ft_model.reset(new BertTritonModel<half>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir,
-          param_get_int("int8_mode"),
-          static_cast<bool>(param_get_int("is_sparse")),
-          static_cast<bool>(param_get_int("is_remove_padding"))));
-    } else if (data_type == "fp32") {
-      ft_model.reset(new BertTritonModel<float>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir,
-          param_get_int("int8_mode"),
-          static_cast<bool>(param_get_int("is_sparse")),
-          static_cast<bool>(param_get_int("is_remove_padding"))));
-#ifdef ENABLE_BF16
-    } else if (data_type == "bf16") {
-      ft_model.reset(new BertTritonModel<__nv_bfloat16>(
-          param_get_int("tensor_para_size"),
-          param_get_int("pipeline_para_size"),
-          param_get_int("enable_custom_all_reduce"), model_dir,
-          param_get_int("int8_mode"),
-          static_cast<bool>(param_get_int("is_sparse")),
-          static_cast<bool>(param_get_int("is_remove_padding"))));
-#endif
-    }
-  }
+  ft_model = ModelFactory(param, model_filename);
 
   int total_weight_gpu_size = (instance_group_count * model_instance_size) >= gpu_size ?
     gpu_size : (instance_group_count * model_instance_size);
@@ -473,15 +475,98 @@ ModelState::LoadModel(
 TRITONSERVER_Error*
 ModelState::AutoCompleteConfig()
 {
-  // Auto-complete configuration is not supported since fastertransformer does
-  // not store/capture sufficient model metadata so just log error instead.
-  LOG_MESSAGE(
-      TRITONSERVER_LOG_WARN,
-      (std::string("skipping model configuration auto-complete for '") +
-       Name() + "': not supported for fastertransformer backend")
-          .c_str());
+  if (GetParameter("model_type") == "T5-Encoder") {
+    const std::string data_type = GetParameter("data_type");
+    auto &config = ModelConfig();
+    common::TritonJson::Value outputs, output, dtype_object;
+    std::string name;
+    config.MemberAsArray("output", &outputs);
+
+    std::unordered_map<std::string, std::string> return_type_map {
+      {"fp16", "TYPE_FP16"},
+      {"fp32", "TYPE_FP32"},
+      {"bf16", "TYPE_BF16"}};
+
+    std::set<std::string> outputs_to_modify = {"output_hidden_state", "output_attentions"};
+    for (size_t idx = 0; idx < outputs.ArraySize(); idx++) {
+      outputs.IndexAsObject(idx, &output);
+      output.MemberAsString("name", &name);
+      if (outputs_to_modify.find(name) == outputs_to_modify.end()) {
+        continue;
+      }
+      output.Find("data_type", &dtype_object);
+      dtype_object.SetString(return_type_map[data_type]);
+      LOG_MESSAGE(
+          TRITONSERVER_LOG_VERBOSE,
+          ("Automatically setting return data_type for \"" + name + "\" to \"" +
+             return_type_map[data_type] + "\"").c_str());
+    }
+  }
+  else if (GetParameter("model_type") == "bert") {
+    const std::string data_type = GetParameter("data_type");
+    auto &config = ModelConfig();
+    common::TritonJson::Value inputs, input, dtype_object;
+    common::TritonJson::Value outputs, output;
+    std::string name;
+    config.MemberAsArray("input", &inputs);
+    config.MemberAsArray("output", &outputs);
+
+    std::unordered_map<std::string, std::string> return_type_map {
+      {"fp16", "TYPE_FP16"},
+      {"fp32", "TYPE_FP32"},
+      {"bf16", "TYPE_BF16"}};
+
+    for (size_t idx = 0; idx < inputs.ArraySize(); idx++) {
+      inputs.IndexAsObject(idx, &input);
+      input.MemberAsString("name", &name);
+      if (name != "input_hidden_state") {
+        continue;
+      }
+      input.Find("data_type", &dtype_object);
+      dtype_object.SetString(return_type_map[data_type]);
+      LOG_MESSAGE(
+          TRITONSERVER_LOG_VERBOSE,
+          ("Automatically setting return data_type for \"input_hidden_state\" to \"" +
+             return_type_map[data_type] + "\"").c_str());
+    }
+
+    for (size_t idx = 0; idx < outputs.ArraySize(); idx++) {
+      outputs.IndexAsObject(idx, &output);
+      output.MemberAsString("name", &name);
+      if (name != "output_hidden_state") {
+        continue;
+      }
+      output.Find("data_type", &dtype_object);
+      dtype_object.SetString(return_type_map[data_type]);
+      LOG_MESSAGE(
+          TRITONSERVER_LOG_VERBOSE,
+          ("Automatically setting return data_type for \"output_hidden_state\" to \"" +
+             return_type_map[data_type] + "\"").c_str());
+    }
+  }
+  else {
+    // Auto-complete configuration is not supported since fastertransformer does
+    // not store/capture sufficient model metadata so just log error instead.
+    LOG_MESSAGE(
+        TRITONSERVER_LOG_WARN,
+        (std::string("skipping model configuration auto-complete for '") +
+        Name() + "': not supported for fastertransformer backend")
+            .c_str());
+  }
 
   return nullptr;  // success
+}
+
+std::string
+ModelState::GetParameter(const char* parameter)
+{
+  auto &config = ModelConfig();
+  common::TritonJson::Value parameters, model_type_obj;
+  std::string model_type;
+  config.MemberAsObject("parameters", &parameters);
+  parameters.MemberAsObject(parameter, &model_type_obj);
+  model_type_obj.MemberAsString("string_value", &model_type);
+  return model_type;
 }
 
 struct stream_callback_ctx_t {
@@ -724,17 +809,64 @@ ModelInstanceState::~ModelInstanceState(){
 
 TRITONSERVER_Error* ModelInstanceState::ValidateInputs()
 {
-  triton::common::TritonJson::Value ios;
+  triton::common::TritonJson::Value ios, bios;
+  // input
   std::string name, data_type;
   triton::common::TritonJson::Value jshape;
+  // batch input
+  std::string kind, target_name, source_input;
+  triton::common::TritonJson::Value target_name_array, source_input_array;
   model_state_->ModelConfig().MemberAsArray("input", &ios);
+  model_state_->ModelConfig().MemberAsArray("batch_input", &bios);
 
+  std::vector<std::string> valid_batch_input;
+
+  // batch input
+  for (size_t size = 0; size < bios.ArraySize(); size++) {
+    triton::common::TritonJson::Value batch_input;
+    bios.IndexAsObject(size, &batch_input);
+    batch_input.MemberAsString("kind", &kind);
+    batch_input.MemberAsArray("target_name", &target_name_array);
+    batch_input.MemberAsString("data_type", &data_type);
+    batch_input.MemberAsArray("source_input", &source_input_array);
+    target_name_array.IndexAsString(0, &target_name);
+    source_input_array.IndexAsString(0, &source_input);
+
+    LOG_MESSAGE(
+        TRITONSERVER_LOG_INFO, (std::string(
+                                    "Get batch input kind: " + kind + ", target_name: " +
+                                    target_name + ", data_type: " + data_type +
+                                    ", source_input: " + source_input)
+                                    .c_str()));
+
+    if (kind == "BATCH_ITEM_SHAPE" && data_type == "TYPE_INT32" &&
+      source_input + "_item_shape" == target_name) {
+      valid_batch_input.emplace_back(std::move(source_input));
+    }
+  }
+
+  // input
   for (size_t size = 0; size < ios.ArraySize(); size++) {
     triton::common::TritonJson::Value input;
     ios.IndexAsObject(size, &input);
     input.MemberAsString("name", &name);
     input.MemberAsString("data_type", &data_type);
     input.MemberAsArray("dims", &jshape);
+
+    triton::common::TritonJson::Value allow_ragged_batch_json;
+    bool allow_ragged_batch = false;
+    if (input.Find("allow_ragged_batch", &allow_ragged_batch_json)) {
+      RETURN_IF_ERROR(allow_ragged_batch_json.AsBool(&allow_ragged_batch));
+    }
+
+    if (allow_ragged_batch &&
+      std::find(valid_batch_input.begin(), valid_batch_input.end(), name)
+      == valid_batch_input.end())
+    {
+      return TRITONSERVER_ErrorNew(TRITONSERVER_ERROR_INVALID_ARG,
+        std::string("Ragged Batch [ " + name +
+        " ] needs the corresponding batch_input item shape !").c_str());
+    }
 
     std::vector<int64_t> shape;
     for (size_t size = 0; size < jshape.ArraySize(); size++) {
@@ -753,10 +885,14 @@ TRITONSERVER_Error* ModelInstanceState::ValidateInputs()
       }
     }
 
+    std::string allow_ragged_batch_str = allow_ragged_batch ? "true" : "false";
+
     LOG_MESSAGE(
         TRITONSERVER_LOG_VERBOSE, (std::string(
                                     "Get input name: " + name + ", type: " +
-                                    data_type + ", shape: " + str_shape)
+                                    data_type + ", shape: " + str_shape +
+                                    ", allow_ragged_batch: " +
+                                    allow_ragged_batch_str)
                                     .c_str()));
   }
   return nullptr;  // success
@@ -1087,7 +1223,7 @@ ThreadForward(
     stream_callback_ctx_t* context)
 {
   ft::check_cuda_error(cudaSetDevice(device_id));
-  LOG_MESSAGE(TRITONSERVER_LOG_INFO, (std::string("Start to forward")).c_str());
+  LOG_MESSAGE(TRITONSERVER_LOG_VERBOSE, (std::string("Start to forward")).c_str());
   if (use_stream_cb) {
     (*ft_model_instance)->registerCallback(streaming_callback, (void*)context);
   }
@@ -1095,7 +1231,7 @@ ThreadForward(
   if (use_stream_cb) {
     (*ft_model_instance)->unRegisterCallback();
   }
-  LOG_MESSAGE(TRITONSERVER_LOG_INFO, (std::string("Stop to forward")).c_str());
+  LOG_MESSAGE(TRITONSERVER_LOG_VERBOSE, (std::string("Stop to forward")).c_str());
 
   return 0;
 }
@@ -1285,6 +1421,7 @@ ModelInstanceState::SetInputTensors(
 {
   const int max_batch_size = model_state_->MaxBatchSize();
   bool sequence_batching_enabled = model_state_->SequenceBatchingEnabled();
+  bool dynamic_batching_enabled = model_state_->DynamicBatchingEnabled();
 
   // All requests must have equally-sized input tensors so use any
   // request as the representative for the input tensors.
@@ -1298,6 +1435,109 @@ ModelInstanceState::SetInputTensors(
       (std::string("get input count = ") + std::to_string(input_count))
           .c_str());
 
+  // Process batch input if any
+  RaggedBatchingParam_Map batch_input_param_map;
+
+  if (dynamic_batching_enabled) {
+    // Handle batch inputs for ragged batching
+    for (const auto& batch_input : model_state_->BatchInputs()) {
+      std::vector<int64_t> shape;
+      collector->BatchInputShape(batch_input, &shape);
+
+      auto batch_input_kind = batch_input.BatchInputKind();
+      auto batch_input_name = batch_input.TargetNames()[0];
+
+      // we only take care of the ragged input_ids
+      // Assume the first dimention (length) are different and others are the same
+      // BATCH_ITEM_SHAPE [num_requests (batches), num_dims (excluding batch dimension)]
+      if (batch_input_kind == BatchInput::Kind::BATCH_ITEM_SHAPE &&
+        (batch_input_name == "input_ids_item_shape" ||
+         batch_input_name == "request_prompt_embedding_item_shape")) {
+
+        RaggedBatchingParams param {};
+
+        size_t num_feature_dimensions = (size_t) shape[1];
+        const char* dst_buffer = nullptr;
+        size_t dst_buffer_byte_size;
+        TRITONSERVER_MemoryType dst_memory_type;
+        int64_t dst_memory_type_id;
+
+        // Batch inputs are always created on CPU
+        RESPOND_ALL_AND_SET_NULL_IF_ERROR(
+          (*responses), responses->size(),
+          collector->ProcessBatchInput(
+              batch_input, nullptr, 0, {{TRITONSERVER_MEMORY_CPU, 0}},
+              &dst_buffer, &dst_buffer_byte_size, &dst_memory_type,
+              &dst_memory_type_id));
+
+        param.batch_input_ptr = reinterpret_cast<const int32_t*>(dst_buffer);
+
+        // concat all feature dimensions
+        param.batch_intput_size = (dst_buffer_byte_size / sizeof(int32_t)) / num_feature_dimensions;
+        if (num_feature_dimensions > 1) {
+          BackendMemory* batch_item_shape_memory;
+          RESPOND_ALL_AND_RETURN_IF_ERROR(
+              responses, request_count,
+              BackendMemory::Create(
+                  model_state_->TritonMemoryManager(), {BackendMemory::AllocationType::CPU},
+                  0, dst_buffer_byte_size / num_feature_dimensions, &batch_item_shape_memory));
+          int32_t* batch_item_shape_memory_ptr =
+            reinterpret_cast<int32_t*>(batch_item_shape_memory->MemoryPtr());
+          for (size_t idx = 0; idx < param.batch_intput_size; idx++) {
+            int32_t concat_dimensions = 1;
+            for (size_t dim_idx = 0; dim_idx < num_feature_dimensions; dim_idx++) {
+              concat_dimensions *= param.batch_input_ptr[idx * num_feature_dimensions + dim_idx];
+              //dim0 is seq length dimension
+              if (dim_idx == 0) {
+                  param.max_seq_length = std::max(param.max_seq_length,
+                    param.batch_input_ptr[idx * num_feature_dimensions]);
+              }
+            }
+            batch_item_shape_memory_ptr[idx] = concat_dimensions;
+          }
+          param.batch_input_ptr = reinterpret_cast<const int32_t*>(batch_item_shape_memory_ptr);
+        }
+        else {
+          param.max_seq_length = *std::max_element(param.batch_input_ptr ,
+                              param.batch_input_ptr + param.batch_intput_size);
+        }
+
+        // check if padding is needed
+        param.is_input_ragged =std::any_of(param.batch_input_ptr,
+                                         param.batch_input_ptr + param.batch_intput_size,
+                                         [&](int x) { return x != param.batch_input_ptr[0];});
+
+        // calculate statics of elements
+        if (param.is_input_ragged) {
+          param.max_elements_per_seq =
+            *std::max_element(param.batch_input_ptr ,
+                              param.batch_input_ptr + param.batch_intput_size);
+          param.total_input_elements =
+            std::accumulate(param.batch_input_ptr ,
+                            param.batch_input_ptr + param.batch_intput_size , 0);
+          batch_input_param_map.insert({batch_input_name, param});
+          // verbose logging for debugging
+          if (TRITONSERVER_LogIsEnabled(TRITONSERVER_LOG_VERBOSE)) {
+            std::string value_str = "[ ";
+            for (size_t i = 0; i < param.batch_intput_size; i ++) {
+              value_str += std::to_string(param.batch_input_ptr[i]) + " ";
+            }
+            value_str += "]";
+
+            LOG_MESSAGE(
+              TRITONSERVER_LOG_VERBOSE,
+              (std::string("collect batch input name: ") + batch_input_name +
+              "\n size: " + std::to_string(dst_buffer_byte_size) + " bytes\n value: " + value_str +
+              "\n max sequence length: " + std::to_string(param.max_seq_length) +
+              "\n max elements per sequence: " + std::to_string(param.max_elements_per_seq))
+                  .c_str());
+          }
+        }
+      }
+    }
+  }
+
+  // Process user-defined inputs
   for (uint32_t input_idx = 0; input_idx < input_count; input_idx++) {
     TRITONBACKEND_Input* input;
     RESPOND_ALL_AND_RETURN_IF_ERROR(
@@ -1317,6 +1557,79 @@ ModelInstanceState::SetInputTensors(
     input_names->emplace_back(input_name);
 
     std::string input_name_str = std::string(input_name);
+
+    // Pad input ids from different requests
+    RaggedBatchingParams param = batch_input_param_map[input_name_str + "_item_shape"];
+    if (batch_input_param_map.find(input_name_str + "_item_shape") != batch_input_param_map.end()
+        && batch_input_param_map[input_name_str + "_item_shape"].is_input_ragged) {
+
+      RaggedBatchingParams param = batch_input_param_map[input_name_str + "_item_shape"];
+
+      const int64_t total_batch_size_int64 = (int64_t)total_batch_size;
+      const int64_t max_elements_per_seq_int64 = (int64_t) param.max_elements_per_seq;
+      const size_t padded_input_ids_buffer_size =
+        GetByteSize(input_datatype,
+                    std::vector<int64_t>{total_batch_size_int64, max_elements_per_seq_int64});
+      // Always host memory
+      BackendMemory* padded_input_memory;
+      BackendMemory* request_input_memory;
+      RESPOND_ALL_AND_RETURN_IF_ERROR(
+          responses, request_count,
+          BackendMemory::Create(
+              model_state_->TritonMemoryManager(), {BackendMemory::AllocationType::CPU},
+              0, padded_input_ids_buffer_size, &padded_input_memory));
+      RESPOND_ALL_AND_RETURN_IF_ERROR(
+          responses, request_count,
+          BackendMemory::Create(
+              model_state_->TritonMemoryManager(), {BackendMemory::AllocationType::CPU},
+              0, padded_input_ids_buffer_size, &request_input_memory));
+
+      memset(padded_input_memory->MemoryPtr(), 0, padded_input_ids_buffer_size);
+
+      collector->ProcessTensor(
+            input_name, request_input_memory->MemoryPtr(),
+            GetByteSize(input_datatype, std::vector<int64_t>{(int64_t) param.total_input_elements}),
+            request_input_memory->MemoryType(),
+            request_input_memory->MemoryTypeId());
+
+      int64_t accumulated_elements_offset = 0;
+
+      char* padded_input_ids_ptr = padded_input_memory->MemoryPtr();
+      char* base_input_ids = request_input_memory->MemoryPtr();
+
+      // copy each request buffer to padded buffer
+      for (int64_t single_batch_idx = 0; single_batch_idx < total_batch_size_int64;
+        single_batch_idx++) {
+
+        int32_t sequence_elements = param.batch_input_ptr[single_batch_idx];
+        std::memcpy(
+          padded_input_ids_ptr +
+          GetByteSize(input_datatype,
+                      std::vector<int64_t>{single_batch_idx, max_elements_per_seq_int64}),
+          base_input_ids +
+          GetByteSize(input_datatype, std::vector<int64_t>{accumulated_elements_offset}),
+          GetByteSize(input_datatype, std::vector<int64_t>{sequence_elements}));
+
+        accumulated_elements_offset += sequence_elements;
+      }
+
+      // modify batch dimension shape, and sequence length dimension shape after padding
+      std::vector<size_t> batchn_shape(input_shape, input_shape + input_dims_count);
+      if (max_batch_size != 0) {
+        batchn_shape[0] = total_batch_size;
+        batchn_shape[1] = (size_t) param.max_seq_length;
+        // assume all non-seq-length dimensions have the same shape
+        if (input_dims_count > 2) {
+          batchn_shape[2] = (size_t) (param.max_elements_per_seq / param.max_seq_length);
+        }
+      }
+      (*input_tensors)
+        ->insert({std::string(input_name),
+                  triton::Tensor{TRITONSERVER_MEMORY_CPU, input_datatype,
+                                 batchn_shape, padded_input_ids_ptr}});
+
+      continue;
+    }
 
     bool start_end_ready_flag = (input_name_str == "START" || input_name_str == "END"
       || input_name_str == "READY");
@@ -1339,22 +1652,13 @@ ModelInstanceState::SetInputTensors(
     // The input must be in contiguous CPU/GPU memory.
     const int64_t batchn_byte_size = GetByteSize(input_datatype, batchn_shape);
 
-    bool device_is_cpu = true;
-
-    std::vector<BackendMemory::AllocationType> alloc_preference;
-    if (device_is_cpu) {
-      alloc_preference = {BackendMemory::AllocationType::CPU};
-    } else {
-      alloc_preference = {BackendMemory::AllocationType::GPU_POOL,
-                          BackendMemory::AllocationType::GPU};
-    }
-
+    // Always host memory
     BackendMemory* input_memory;
     RESPOND_ALL_AND_RETURN_IF_ERROR(
         responses, request_count,
         BackendMemory::Create(
-            model_state_->TritonMemoryManager(), alloc_preference,
-            device_is_cpu ? 0 : DeviceId(), batchn_byte_size, &input_memory));
+            model_state_->TritonMemoryManager(), {BackendMemory::AllocationType::CPU},
+            0, batchn_byte_size, &input_memory));
     input_memories->push_back(input_memory);
 
     TRITONSERVER_MemoryType memory_type = input_memory->MemoryType();
@@ -1428,19 +1732,23 @@ ModelInstanceState::ReadOutputTensors(
     //  Set output shape
     std::vector<int64_t> batchn_shape = sequence_batching_enabled ? std::vector<int64_t>{1} :
       std::vector<int64_t>{};
-    std::string batch_shape_str = sequence_batching_enabled ? "    output shape: [1, " :
-      "    output shape: [";
-    for (uint i = 0; i < output.shape.size(); i++) {
-      batchn_shape.push_back(output.shape[i]);
-      batch_shape_str = batch_shape_str + std::to_string(output.shape[i]);
-      if (i != output.shape.size() - 1) {
-        batch_shape_str = batch_shape_str + ", ";
-      } else {
-        batch_shape_str = batch_shape_str + "]";
+    if (TRITONSERVER_LogIsEnabled(TRITONSERVER_LOG_VERBOSE)) {
+      std::string batch_shape_str = sequence_batching_enabled ? "    output shape: [1, " :
+        "    output shape: [";
+      for (uint i = 0; i < output.shape.size(); i++) {
+        batchn_shape.push_back(output.shape[i]);
+        batch_shape_str = batch_shape_str + std::to_string(output.shape[i]);
+        if (i != output.shape.size() - 1) {
+          batch_shape_str = batch_shape_str + ", ";
+        } else {
+          batch_shape_str = batch_shape_str + "]";
+        }
       }
+      LOG_MESSAGE(TRITONSERVER_LOG_VERBOSE, batch_shape_str.c_str());
+    } else {
+      batchn_shape.insert(batchn_shape.end(), output.shape.begin(), output.shape.end());
     }
 
-    LOG_MESSAGE(TRITONSERVER_LOG_VERBOSE, batch_shape_str.c_str());
     responder.ProcessTensor(
         it->first, output_dtype, batchn_shape, output_buffer,
         TRITONSERVER_MEMORY_GPU, model_instance_device_id_start_);

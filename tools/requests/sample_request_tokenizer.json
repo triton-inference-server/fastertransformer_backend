@@ -1,0 +1,14 @@
+{
+    "config": {
+        "model_name": "tokenizer"
+    },
+    "request": [
+        {
+            "name": "query",
+            "data": [["The A and B Loop is a streetcar circle route of the"],
+                     ["The Magnavox Odyssey is the first commercial home video game console."]],
+            "dtype": "bytes"
+        }
+    ]
+}
+

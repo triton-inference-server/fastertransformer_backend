@@ -28,6 +28,7 @@
 
 import argparse
 import numpy as np
+import logging
 import tritonclient.grpc as grpcclient
 import tritonclient.http as httpclient
 
@@ -35,12 +36,9 @@ from tritonclient.utils import np_to_triton_dtype
 
 FLAGS = None
 
-START_LEN = 8
-OUTPUT_LEN = 24
-BATCH_SIZE = 8
+GPT_START_ID = 220
+GPT_END_ID = 50256
 
-start_id = 220
-end_id = 50256
 
 def prepare_tensor(name, input, protocol):
     client_util = httpclient if protocol == "http" else grpcclient
@@ -49,15 +47,25 @@ def prepare_tensor(name, input, protocol):
     t.set_data_from_numpy(input)
     return t
 
+
 def create_inference_server_client(protocol, url, concurrency, verbose):
     client_util = httpclient if protocol == "http" else grpcclient
     if protocol == "http":
         return client_util.InferenceServerClient(url,
-                                                concurrency=concurrency,
-                                                verbose=verbose)
+                                                 concurrency=concurrency,
+                                                 verbose=verbose)
     elif protocol == "grpc":
-        return client_util.InferenceServerClient(url,
-                                                verbose=verbose)
+        return client_util.InferenceServerClient(url, verbose=verbose)
+
+
+def append_start_and_end_ids(inputs, batch_size, start_id=None, end_id=None):
+    if start_id is not None:
+        start_ids = start_id * np.ones([batch_size, 1]).astype(np.uint32)
+        inputs.append(prepare_tensor("start_id", start_ids, FLAGS.protocol))
+    if end_id is not None:
+        end_ids = end_id * np.ones([batch_size, 1]).astype(np.uint32)
+        inputs.append(prepare_tensor("end_id", end_ids, FLAGS.protocol))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -89,24 +97,38 @@ if __name__ == '__main__':
                         default=0.0,
                         required=False,
                         help='topp for sampling')
-    parser.add_argument(
-        '-i',
-        '--protocol',
-        type=str,
-        required=False,
-        default='http',
-        help='Protocol ("http"/"grpc") used to ' +
-        'communicate with inference service. Default is "http".')
+    parser.add_argument('-i',
+                        '--protocol',
+                        type=str,
+                        required=False,
+                        default='http',
+                        help='Protocol ("http"/"grpc") used to '
+                             'communicate with inference service. Default is "http".')
     parser.add_argument('--return_log_probs',
                         action="store_true",
                         default=False,
                         required=False,
                         help='return the cumulative log probs and output log probs or not')
+    parser.add_argument('--output-len',
+                        type=int,
+                        default=24,
+                        required=False,
+                        help='the number of tokens we hope model generating')
+    parser.add_argument('--model-variant',
+                        type=str,
+                        default='gpt',
+                        choices=['gpt', 'bloom'],
+                        help='The type of GPT model variants.')
 
     FLAGS = parser.parse_args()
+
+    LOGGER = logging.getLogger(f"{__file__} {__name__}")
+    log_format = "%(asctime)s %(name)s:%(lineno)d [%(levelname)s] %(message)s"
+    logging.basicConfig(level=logging.DEBUG if FLAGS.verbose else logging.INFO,
+                        format=log_format)
+
     if (FLAGS.protocol != "http") and (FLAGS.protocol != "grpc"):
-        print("unexpected protocol \"{}\", expects \"http\" or \"grpc\"".format(
-            FLAGS.protocol))
+        LOGGER.error(f'unexpected protocol "{FLAGS.protocol}", expects "http" or "grpc"')
         exit(1)
 
     if FLAGS.url is None:
@@ -117,23 +139,24 @@ if __name__ == '__main__':
     # protocol anyway.
 
     ######################
+    LOGGER.info(" Preprocessing ".center(80, '='))
     model_name = "preprocessing"
     with create_inference_server_client(FLAGS.protocol,
                                         FLAGS.url,
                                         concurrency=1,
                                         verbose=FLAGS.verbose) as client:
         input0 = [
-                ["Blackhawks\n The 2015 Hilltoppers"],
-                ["Data sources you can use to make a decision:"],
-                ["\n if(angle = 0) { if(angle"],
-                ["GMs typically get 78% female enrollment, but the "],
-                ["Previous Chapter | Index | Next Chapter"],
-                ["Michael, an American Jew, called Jews"],
-                ["Blackhawks\n The 2015 Hilltoppers"],
-                ["Data sources you can use to make a comparison:"]
-                ]
+            ["Blackhawks\n The 2015 Hilltoppers"],
+            ["Data sources you can use to make a decision:"],
+            ["\n if(angle = 0) { if(angle"],
+            ["GMs typically get 78% female enrollment, but the "],
+            ["Previous Chapter | Index | Next Chapter"],
+            ["Michael, an American Jew, called Jews"],
+            ["Blackhawks\n The 2015 Hilltoppers"],
+            ["Data sources you can use to make a comparison:"]
+        ]
         input0_data = np.array(input0).astype(object)
-        output0_len = np.ones_like(input0).astype(np.uint32) * OUTPUT_LEN
+        output0_len = np.ones_like(input0).astype(np.uint32) * FLAGS.output_len
         bad_words_list = np.array([
             ["Hawks, Hawks"],
             [""],
@@ -166,12 +189,15 @@ if __name__ == '__main__':
             output2 = result.as_numpy("REQUEST_OUTPUT_LEN")
             output3 = result.as_numpy("BAD_WORDS_IDS")
             output4 = result.as_numpy("STOP_WORDS_IDS")
-            # output0 = output0.reshape([output0.shape[0], 1, output0.shape[1]]) # Add dim for beam width
-            print("============After preprocessing============")
-            print(output0, output1, output2)
-            print("===========================================\n\n\n")
+            LOGGER.info("============After preprocessing============")
+            LOGGER.info(f"INPUT_ID: \n {output0}")
+            LOGGER.info(f"REQUEST_INPUT_LEN: \n {output1}")
+            LOGGER.info(f"REQUEST_OUTPUT_LEN: \n {output2}")
+            LOGGER.info(f"BAD_WORDS_IDS: \n {output3}")
+            LOGGER.info(f"STOP_WORDS_IDS: \n {output4}")
+            LOGGER.info("===========================================\n\n\n")
         except Exception as e:
-            print(e)
+            LOGGER.error(e)
 
     ######################
     model_name = "fastertransformer"
@@ -186,10 +212,8 @@ if __name__ == '__main__':
         len_penalty = 1.0 * np.ones([output0.shape[0], 1]).astype(np.float32)
         repetition_penalty = 1.0 * np.ones([output0.shape[0], 1]).astype(np.float32)
         random_seed = 0 * np.ones([output0.shape[0], 1]).astype(np.uint64)
-        is_return_log_probs = FLAGS.return_log_probs * np.ones([output0.shape[0], 1]).astype(np.bool)
+        is_return_log_probs = FLAGS.return_log_probs * np.ones([output0.shape[0], 1]).astype(bool)
         beam_width = (FLAGS.beam_width * np.ones([output0.shape[0], 1])).astype(np.uint32)
-        start_ids = start_id * np.ones([output0.shape[0], 1]).astype(np.uint32)
-        end_ids = end_id * np.ones([output0.shape[0], 1]).astype(np.uint32)
         prompt_learning_task_name_ids = 0 * np.ones([output0.shape[0], 1]).astype(np.uint32)
         inputs = [
             prepare_tensor("input_ids", output0, FLAGS.protocol),
@@ -204,27 +228,41 @@ if __name__ == '__main__':
             prepare_tensor("random_seed", random_seed, FLAGS.protocol),
             prepare_tensor("is_return_log_probs", is_return_log_probs, FLAGS.protocol),
             prepare_tensor("beam_width", beam_width, FLAGS.protocol),
-            prepare_tensor("start_id", start_ids, FLAGS.protocol),
-            prepare_tensor("end_id", end_ids, FLAGS.protocol),
             prepare_tensor("bad_words_list", output3, FLAGS.protocol),
             prepare_tensor("stop_words_list", output4, FLAGS.protocol),
         ]
+
+        # In this example, variant models (bloom or opt) will use their own
+        # start_id and end_id defined in the config file under the checkpoint
+        # directory without passing as request input parameters.
+        if FLAGS.model_variant == 'gpt':
+            append_start_and_end_ids(inputs, output0.shape[0], GPT_START_ID, GPT_END_ID)
+
+        # factual-nucleus arguments
+        # top_p_decay = 0.9 * np.ones([output0.shape[0], 1]).astype(np.float32)
+        # top_p_min = 0.5 * np.ones([output0.shape[0], 1]).astype(np.float32)
+        # top_p_reset_ids = 13 * np.ones([output0.shape[0], 1]).astype(np.uint32)
+        # inputs.append(prepare_tensor("top_p_decay", top_p_decay, FLAGS.protocol))
+        # inputs.append(prepare_tensor("top_p_min", top_p_min, FLAGS.protocol))
+        # inputs.append(prepare_tensor("top_p_reset_ids", top_p_reset_ids, FLAGS.protocol))
 
         try:
             result = client.infer(model_name, inputs)
             output0 = result.as_numpy("output_ids")
             output1 = result.as_numpy("sequence_length")
-            print("============After fastertransformer============")
-            print(output0)
-            print(output1)
+            output2 = result.as_numpy("response_input_lengths")
+            LOGGER.info("============After fastertransformer============")
+            LOGGER.info(f"output_ids: \n{output0}")
+            LOGGER.info(f"sequence_length: \n{output1}")
+            LOGGER.info(f"response_input_lengths: \n{output2}")
             if FLAGS.return_log_probs:
-                output2 = result.as_numpy("cum_log_probs")
-                output3 = result.as_numpy("output_log_probs")
-                print(output2)
-                print(output3)
-            print("===========================================\n\n\n")
+                output3 = result.as_numpy("cum_log_probs")
+                output4 = result.as_numpy("output_log_probs")
+                LOGGER.info(f"cum_log_probs: \n{output3}")
+                LOGGER.info(f"output_log_probs: \n{output4}")
+            LOGGER.info("===========================================\n\n\n")
         except Exception as e:
-            print(e)
+            LOGGER.error(e)
 
     ######################
     model_name = "postprocessing"
@@ -232,19 +270,23 @@ if __name__ == '__main__':
                                         FLAGS.url,
                                         concurrency=1,
                                         verbose=FLAGS.verbose) as client:
+        LOGGER.info(f"TOKENS_BATCH: {output0}")
+        LOGGER.info(f"RESPONSE_INPUT_LENGTHS: {output2}")
         inputs = [
             prepare_tensor("TOKENS_BATCH", output0, FLAGS.protocol),
+            prepare_tensor("RESPONSE_INPUT_LENGTHS", output2, FLAGS.protocol),
+            # prepare_tensor("RESPONSE_INPUT_LENGTHS", output2.astype(np.uint32), FLAGS.protocol),
         ]
         inputs[0].set_data_from_numpy(output0)
 
         try:
             result = client.infer(model_name, inputs)
             output0 = result.as_numpy("OUTPUT")
-            print("============After postprocessing============")
-            print(output0)
-            print("===========================================\n\n\n")
+            LOGGER.info("============After postprocessing============")
+            LOGGER.info(f"output: \n{output0}")
+            LOGGER.info("===========================================\n\n\n")
         except Exception as e:
-            print(e)
+            LOGGER.error(e)
 
     ######################
     model_name = "ensemble"
@@ -253,15 +295,15 @@ if __name__ == '__main__':
                                         concurrency=1,
                                         verbose=FLAGS.verbose) as client:
         input0 = [
-                ["Blackhawks\n The 2015 Hilltoppers"],
-                ["Data sources you can use to make a decision:"],
-                ["\n if(angle = 0) { if(angle"],
-                ["GMs typically get 78% female enrollment, but the "],
-                ["Previous Chapter | Index | Next Chapter"],
-                ["Michael, an American Jew, called Jews"],
-                ["Blackhawks\n The 2015 Hilltoppers"],
-                ["Data sources you can use to make a comparison:"]
-                ]
+            ["Blackhawks\n The 2015 Hilltoppers"],
+            ["Data sources you can use to make a decision:"],
+            ["\n if(angle = 0) { if(angle"],
+            ["GMs typically get 78% female enrollment, but the "],
+            ["Previous Chapter | Index | Next Chapter"],
+            ["Michael, an American Jew, called Jews"],
+            ["Blackhawks\n The 2015 Hilltoppers"],
+            ["Data sources you can use to make a comparison:"]
+        ]
         bad_words_list = np.array([
             ["Hawks, Hawks"],
             [""],
@@ -281,7 +323,7 @@ if __name__ == '__main__':
             [""],
             ["month, month"]], dtype=object)
         input0_data = np.array(input0).astype(object)
-        output0_len = np.ones_like(input0).astype(np.uint32) * OUTPUT_LEN
+        output0_len = np.ones_like(input0).astype(np.uint32) * FLAGS.output_len
         runtime_top_k = (FLAGS.topk * np.ones([input0_data.shape[0], 1])).astype(np.uint32)
         runtime_top_p = FLAGS.topp * np.ones([input0_data.shape[0], 1]).astype(np.float32)
         beam_search_diversity_rate = 0.0 * np.ones([input0_data.shape[0], 1]).astype(np.float32)
@@ -291,8 +333,6 @@ if __name__ == '__main__':
         random_seed = 0 * np.ones([input0_data.shape[0], 1]).astype(np.uint64)
         is_return_log_probs = True * np.ones([input0_data.shape[0], 1]).astype(bool)
         beam_width = (FLAGS.beam_width * np.ones([input0_data.shape[0], 1])).astype(np.uint32)
-        start_ids = start_id * np.ones([input0_data.shape[0], 1]).astype(np.uint32)
-        end_ids = end_id * np.ones([input0_data.shape[0], 1]).astype(np.uint32)
         inputs = [
             prepare_tensor("INPUT_0", input0_data, FLAGS.protocol),
             prepare_tensor("INPUT_1", output0_len, FLAGS.protocol),
@@ -307,18 +347,27 @@ if __name__ == '__main__':
             prepare_tensor("random_seed", random_seed, FLAGS.protocol),
             prepare_tensor("is_return_log_probs", is_return_log_probs, FLAGS.protocol),
             prepare_tensor("beam_width", beam_width, FLAGS.protocol),
-            prepare_tensor("start_id", start_ids, FLAGS.protocol),
-            prepare_tensor("end_id", end_ids, FLAGS.protocol),
         ]
-        
+
+        if FLAGS.model_variant == 'gpt':
+            append_start_and_end_ids(inputs, input0_data.shape[0], GPT_START_ID, GPT_END_ID)
+
+        # factual-nucleus arguments
+        # top_p_decay = 0.9 * np.ones([input0_data.shape[0], 1]).astype(np.float32)
+        # top_p_min = 0.5 * np.ones([input0_data.shape[0], 1]).astype(np.float32)
+        # top_p_reset_ids = 13 * np.ones([input0_data.shape[0], 1]).astype(np.uint32)
+        # inputs.append(prepare_tensor("top_p_decay", top_p_decay, FLAGS.protocol))
+        # inputs.append(prepare_tensor("top_p_min", top_p_min, FLAGS.protocol))
+        # inputs.append(prepare_tensor("top_p_reset_ids", top_p_reset_ids, FLAGS.protocol))
+
         try:
             result = client.infer(model_name, inputs)
             output0 = result.as_numpy("OUTPUT_0")
-            print("============After ensemble============")
-            print(output0)
-            print(result.as_numpy("sequence_length"))
+            LOGGER.info("============After ensemble============")
+            LOGGER.info(f"output: \n {output0}")
+            LOGGER.info(f"sequence_length: \n{result.as_numpy('sequence_length')}")
             if FLAGS.return_log_probs:
-                print(result.as_numpy("cum_log_probs"))
-                print(result.as_numpy("output_log_probs"))
+                LOGGER.info(f"cum_log_probs: \n{result.as_numpy('cum_log_probs')}")
+                LOGGER.info(f"output_log_probs: \n{result.as_numpy('output_log_probs')}")
         except Exception as e:
-            print(e)
+            LOGGER.info(e)

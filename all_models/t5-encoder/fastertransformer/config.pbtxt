@@ -1,0 +1,113 @@
+
+# Copyright (c) 2021-2022, NVIDIA CORPORATION. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#  * Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#  * Neither the name of NVIDIA CORPORATION nor the names of its
+#    contributors may be used to endorse or promote products derived
+#    from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+# OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+name: "fastertransformer"
+backend: "fastertransformer"
+default_model_filename: "t5-encoder"
+max_batch_size: 1024
+input [
+  {
+    name: "input_ids"
+    data_type: TYPE_UINT32
+    dims: [ -1 ]
+  },
+  {
+    name: "sequence_length"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+  },
+  {
+    name: "is_return_attentions"
+    data_type: TYPE_BOOL
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: "ia3_tasks"
+    data_type: TYPE_INT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  }
+]
+output [
+  {
+    name: "output_hidden_state"
+    data_type: TYPE_FP32 # return type will be set automatically based on model's data_type
+    dims: [ -1, -1 ]
+  },
+  {
+    name: "output_attentions"
+    data_type: TYPE_FP32 # return type will be set automatically based on model's data_type
+    dims: [-1, -1, -1, -1 ] # [num_layers, num_head, sequence_length, sequence_length]
+  }
+]
+instance_group [
+  {
+    count: 1
+    kind : KIND_CPU
+  }
+]
+parameters {
+  key: "tensor_para_size"
+  value: {
+    string_value: "1"
+  }
+}
+parameters {
+  key: "pipeline_para_size"
+  value: {
+    string_value: "1"
+  }
+}
+parameters {
+  key: "data_type"
+  value: {
+    string_value: "fp16"
+  }
+}
+parameters {
+  key: "enable_custom_all_reduce"
+  value: {
+    string_value: "0"
+  }
+}
+parameters {
+  key: "model_type"
+  value: {
+    string_value: "T5-Encoder"
+  }
+}
+parameters {
+  key: "model_checkpoint_path"
+  value: {
+    string_value: "/home/scratch.mseznec_sw/nlp-models/ft/t5/encoder/1-gpu"
+  }
+}
+

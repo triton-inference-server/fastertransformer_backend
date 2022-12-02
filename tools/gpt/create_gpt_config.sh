@@ -1,4 +1,49 @@
-echo '
+MODEL_PATH=$1
+TP=$2
+PP=$3
+DATA_TYPE=$4
+MODEL_TYPE=$5
+
+if [ $MODEL_PATH ]; then
+  :
+else
+	echo "MODEL_PATH IS NOT EXISTS"
+    exit
+fi
+
+if [ $TP ]; then
+  :
+else
+	echo "TP IS NOT EXISTS"
+    exit
+fi
+
+if [ $PP ]; then
+  :
+else
+	echo "PP IS NOT EXISTS"
+    exit
+fi
+
+if [ $DATA_TYPE ]; then
+  :
+else
+	echo "DATA_TYPE IS NOT EXISTS"
+    exit
+fi
+
+if [ "$MODEL_TYPE" = "GPT" ]; then
+  :
+elif [ "$MODEL_TYPE" = "GPT-J" ]; then
+  :
+elif [ "$MODEL_TYPE" = "GPT-NeoX" ]; then
+  :
+else
+	echo "MODEL_TYPE ${MODEL_TYPE} is not suppoted"
+  exit
+fi
+
+echo "
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -25,138 +70,159 @@ echo '
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-name: "fastertransformer"
-backend: "fastertransformer"
-default_model_filename: "gpt3_345M"
-max_batch_size: 128
+name: \"fastertransformer\"
+backend: \"fastertransformer\"
+default_model_filename: \"${MODEL_TYPE}\"
+max_batch_size: 1024
 input [
   {
-    name: "input_ids"
+    name: \"input_ids\"
     data_type: TYPE_UINT32
     dims: [ -1 ]
   },
   {
-    name: "input_lengths"
+    name: \"input_lengths\"
     data_type: TYPE_UINT32
     dims: [ 1 ]
     reshape: { shape: [ ] }
   },
   {
-    name: "request_output_len"
+    name: \"request_output_len\"
     data_type: TYPE_UINT32
     dims: [ -1 ]
   },
   {
-      name: "runtime_top_k"
-      data_type: TYPE_UINT32
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "runtime_top_p"
-      data_type: TYPE_FP32
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "beam_search_diversity_rate"
-      data_type: TYPE_FP32
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "temperature"
-      data_type: TYPE_FP32
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "len_penalty"
-      data_type: TYPE_FP32
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "repetition_penalty"
-      data_type: TYPE_FP32
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "random_seed"
-      data_type: TYPE_UINT64
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "is_return_log_probs"
-      data_type: TYPE_BOOL
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-      name: "beam_width"
-      data_type: TYPE_UINT32
-      dims: [ 1 ]
-      reshape: { shape: [ ] }
-      optional: true
-  },
-  {
-    name: "start_id"
+    name: \"runtime_top_k\"
     data_type: TYPE_UINT32
     dims: [ 1 ]
     reshape: { shape: [ ] }
     optional: true
   },
   {
-    name: "end_id"
+    name: \"runtime_top_p\"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"beam_search_diversity_rate\"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"temperature\"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"len_penalty\"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"repetition_penalty\"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"random_seed\"
+    data_type: TYPE_UINT64
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"is_return_log_probs\"
+    data_type: TYPE_BOOL
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"beam_width\"
     data_type: TYPE_UINT32
     dims: [ 1 ]
     reshape: { shape: [ ] }
     optional: true
   },
   {
-    name: "stop_words_list"
+    name: \"start_id\"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"end_id\"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"stop_words_list\"
     data_type: TYPE_INT32
     dims: [ 2, -1 ]
     optional: true
   },
   {
-    name: "bad_words_list"
+    name: \"bad_words_list\"
     data_type: TYPE_INT32
     dims: [ 2, -1 ]
     optional: true
   },
   {
-    name: "prompt_learning_task_name_ids"
+    name: \"prompt_learning_task_name_ids\"
     data_type: TYPE_UINT32
     dims: [ 1 ]
     reshape: { shape: [ ] }
     optional: true
   },
   {
-    name: "request_prompt_embedding"
+    name: \"request_prompt_embedding\"
     data_type: TYPE_FP16
     dims: [ -1, -1 ]
     optional: true
   },
   {
-    name: "request_prompt_lengths"
+    name: \"request_prompt_lengths\"
     data_type: TYPE_UINT32
     dims: [ 1 ]
     reshape: { shape: [ ] }
     optional: true
   },
   {
-    name: "request_prompt_type"
+    name: \"request_prompt_type\"
+    data_type: TYPE_UINT32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"top_p_decay\"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"top_p_min\"
+    data_type: TYPE_FP32
+    dims: [ 1 ]
+    reshape: { shape: [ ] }
+    optional: true
+  },
+  {
+    name: \"top_p_reset_ids\"
     data_type: TYPE_UINT32
     dims: [ 1 ]
     reshape: { shape: [ ] }
@@ -165,22 +231,27 @@ input [
 ]
 output [
   {
-    name: "output_ids"
+    name: \"output_ids\"
     data_type: TYPE_UINT32
     dims: [ -1, -1 ]
   },
   {
-    name: "sequence_length"
+    name: \"sequence_length\"
     data_type: TYPE_UINT32
     dims: [ -1 ]
   },
   {
-    name: "cum_log_probs"
+    name: \"response_input_lengths\"
+    data_type: TYPE_INT32
+    dims: [ -1 ]
+  },
+  {
+    name: \"cum_log_probs\"
     data_type: TYPE_FP32
     dims: [ -1 ]
   },
   {
-    name: "output_log_probs"
+    name: \"output_log_probs\"
     data_type: TYPE_FP32
     dims: [ -1, -1 ]
   }
@@ -192,45 +263,45 @@ instance_group [
   }
 ]
 parameters {
-  key: "tensor_para_size"
+  key: \"tensor_para_size\"
   value: {
-    string_value: "1"
+    string_value: \"${TP}\"
   }
 }
 parameters {
-  key: "pipeline_para_size"
+  key: \"pipeline_para_size\"
   value: {
-    string_value: "1"
+    string_value: \"${PP}\"
   }
 }
 parameters {
-  key: "data_type"
+  key: \"data_type\"
   value: {
-    string_value: "fp16"
+    string_value: \"${DATA_TYPE}\"
   }
 }
 parameters {
-  key: "model_type"
+  key: \"model_type\"
   value: {
-    string_value: "GPT"
+    string_value: \"${MODEL_TYPE}\"
   }
 }
 parameters {
-  key: "model_checkpoint_path"
+  key: \"model_checkpoint_path\"
   value: {
-    string_value: "/data/models/GPT/Megatron/c-model/345m/1-gpu/"
+    string_value: \"${MODEL_PATH}\"
   }
 }
 parameters {
-  key: "int8_mode"
+  key: \"int8_mode\"
   value: {
-    string_value: "0"
+    string_value: \"0\"
   }
 }
 parameters {
-  key: "enable_custom_all_reduce"
+  key: \"enable_custom_all_reduce\"
   value: {
-    string_value: "0"
+    string_value: \"0\"
   }
 }
-' >> config.pbtxt
+" > config.pbtxt

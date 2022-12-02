@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import csv
 import json
 import numpy as np
 import torch
@@ -9,11 +8,6 @@ from pathlib import Path
 from torch.nn.utils.rnn import pad_sequence
 from word_list import to_word_list_format, HFTokenizer
 
-TOKENIZER_FILE = "20B_tokenizer.json"
-
-START_ID = 0
-END_ID = 2
-MAX_BATCH_SIZE = 8
 
 class TritonPythonModel:
     """Your Python model must use the same class name. Every Python model
@@ -48,7 +42,18 @@ class TritonPythonModel:
           )
 
         cur_folder = Path(__file__).parent
-        self.encoder = HFTokenizer(str(cur_folder / TOKENIZER_FILE))
+
+        if self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf_t5":
+            from transformers import AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_config["parameters"]["tokenizer_path"]["string_value"])
+            self.start_id = self.tokenizer.eos_token_id
+            self.end_id = self.tokenizer.bos_token_id
+        elif self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf":
+            self.tokenizer = HFTokenizer(str(self.model_config["parameters"]["tokenizer_path"]["string_value"]))
+            self.start_id = 0
+            self.end_id = 2
+        else:
+            assert False, f"{self.model_config['parameters']['tokenizer_type']['string_value']} is invalid"
 
     def execute(self, requests):
         """`execute` must be implemented in every Python model. `execute`
@@ -138,11 +143,12 @@ class TritonPythonModel:
         """
             query : batch string (2D numpy array)
         """
-        start_ids = [torch.IntTensor(self.encoder.tokenize(s[0].decode())) for s in query]
+        if self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf_t5":
+            start_ids = [torch.IntTensor(self.tokenizer.encode(s[0].decode(),  add_special_tokens=False)) for s in query]
+        elif self.model_config["parameters"]["tokenizer_type"]["string_value"] == "hf":
+            start_ids = [torch.IntTensor(self.tokenizer.tokenize(s[0].decode())) for s in query]
         start_lengths = torch.IntTensor([[len(ids)] for ids in start_ids])
 
-        start_ids = pad_sequence(start_ids, batch_first=True, padding_value=END_ID)
-        # input_len = min(start_lengths)
-        #attn_mask = torch.ones((batch_size, input_len, input_len)).tril()
+        start_ids = pad_sequence(start_ids, batch_first=True, padding_value=self.end_id)
 
         return start_ids, start_lengths

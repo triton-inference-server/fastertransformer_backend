@@ -4,11 +4,11 @@ import json
 import numpy as np
 import torch
 import triton_python_backend_utils as pb_utils
-import utils.gpt_token_encoder as encoder
 
 from pathlib import Path
 from torch.nn.utils.rnn import pad_sequence
 from word_list import to_word_list_format
+from transformers import AutoTokenizer
 
 # GPT3 Related variables
 # Reference : https://github.com/NVIDIA/FasterTransformer/blob/main/sample/pytorch/gpt_sample.py
@@ -52,7 +52,8 @@ class TritonPythonModel:
           )
 
         cur_folder = Path(__file__).parent
-        self.encoder = encoder.get_encoder(str(cur_folder/VOCAB_FILE), str(cur_folder/MERGES_FILE))
+        cache_dir = cur_folder / ".cache"
+        self.tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-j-6B", cache_dir=cache_dir)
 
     def execute(self, requests):
         """`execute` must be implemented in every Python model. `execute`
@@ -142,7 +143,7 @@ class TritonPythonModel:
         """
             query : batch string (2D numpy array)
         """
-        start_ids = [torch.IntTensor(self.encoder.encode(s[0].decode())) for s in query]
+        start_ids = [torch.IntTensor(self.tokenizer.encode(s[0].decode())) for s in query]
         start_lengths = torch.IntTensor([[len(ids)] for ids in start_ids])
 
         start_ids = pad_sequence(start_ids, batch_first=True, padding_value=END_ID)
@@ -181,4 +182,4 @@ class TritonPythonModel:
 
     def _encode(self, sentence):
         sentence = sentence.decode() if isinstance(sentence, bytes) else sentence
-        return self.encoder.encode(sentence)
+        return self.tokenizer.encode(sentence)
