@@ -330,7 +330,7 @@ python3 {FT_DIR}/examples/pytorch/gpt/utils/huggingface_bloom_convert.py -o /dat
 ```
 and then similar to GPT we can run an example by
 ```bash
-python3 ${WORKSPACE}/tools/gpt/bloom_test.py
+python3 ${WORKSPACE}/tools/gpt/end_to_end_test.py --model-variant bloom
 ```
 
 ## Run Triton server on multiple nodes
