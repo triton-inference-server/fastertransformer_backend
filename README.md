@@ -41,11 +41,11 @@ Note that this is a research and prototyping tool, not a formal product or maint
   - [Setup](#setup)
     - [Prepare docker images](#prepare-docker-images)
       - [Rebuilding FasterTransformer backend (optional)](#rebuilding-fastertransformer-backend-optional)
-  - [NCCL_LAUNCH_MODE](#nccl_launch_mode)
+  - [NCCL\_LAUNCH\_MODE](#nccl_launch_mode)
     - [GPUs Topology](#gpus-topology)
   - [Model-Parallism and Triton-Multiple-Model-Instances](#model-parallism-and-triton-multiple-model-instances)
-    - [Run inter-node (T x P > GPUs per Node) models](#run-inter-node-t-x-p--gpus-per-node-models)
-    - [Run intra-node (T x P <= GPUs per Node) models](#run-intra-node-t-x-p--gpus-per-node-models)
+    - [Run inter-node (T x P \> GPUs per Node) models](#run-inter-node-t-x-p--gpus-per-node-models)
+    - [Run intra-node (T x P \<= GPUs per Node) models](#run-intra-node-t-x-p--gpus-per-node-models)
     - [Specify Multiple Model Instances](#specify-multiple-model-instances)
     - [Multi-Node Inference](#multi-node-inference)
   - [Request examples](#request-examples)
@@ -110,7 +110,23 @@ export TRITON_DOCKER_IMAGE=triton_with_ft:${CONTAINER_VERSION}
 ### Prepare docker images
 
 The current official Triton Inference Server docker image doesn't contain
-FasterTransformer backend, thus the users must prepare own docker image using below command:
+FasterTransformer backend, thus the users must prepare own docker image either by:
+1. Using the build script
+   Note the `--is-multistage-build` is optional. It installs the minimal dependencies that allow fastertransformer_backend to run
+```bash
+# Create your own Triton container. You can skip this step (done in trtionserver/server)
+python3 compose.py --backend pytorch --container-version 22.12 --output-name tritonserver_pytorch_only
+# In tritonserver/fastertransformer_backend. This will overwrite the current Dockerfile
+python3 docker/create_dockerfile_and_build.py --base-image tritonserver_pytorch_only --image-name tritonserver_with_ft --is-multistage-build
+
+```
+  Alternatively you can simply run
+```bash
+python3 create_dockerfile_and_build.py --triton-version 22.12
+```
+to generate a fastertransformer backend, like done in option 2.
+
+2. Using below command:
 
 ```bash
 docker build --rm   \
