@@ -52,6 +52,8 @@ The FasterTransformer T5 implementation are in [t5_guide.md](https://github.com/
     - [Run 3B NeMo T5](#run-3b-nemo-t5)
     - [Run Nemo model converted from HF](#run-nemo-model-converted-from-hf)
   - [Build an entire processing pipeline with Triton](#build-an-entire-processing-pipeline-with-triton)
+  - [Run t5-v1.1/flan-t5/mt5](#run-t5-v1.1/flan-t5/mt5)
+  - [Loading model by S3](#loading-model-by-s3)
 
 ## Introduction
 
@@ -84,7 +86,7 @@ The following table shows the details of these settings:
 |                |      `repetition_penalty`       |                   [batch_size]                   |        float        |                                                                         **Optional**. repetition penalty for logit                                                                          |
 |                |          `random_seed`          |                   [batch_size]                   |       uint64        |                                                                           **Optional**. random seed for sampling                                                                            |
 |                |      `is_return_log_probs`      |                   [batch_size]                   |        bool         |                                                            **Optional**. flag to return the log probs of generated token or not.                                                            |
-|                |        `max_output_len`         |                   [batch_size]                   |       uint32        |                                                                          **Optional**. max output sequence length                                                                           |
+|                |        `max_output_len`         |                   [batch_size]                   |       uint32        |                                                                                 max output sequence length                                                                                  |
 |                |          `beam_width`           |                   [batch_size]                   |       uint32        |                                                           **Optional**. beam size for beam search, using sampling if setting to 1                                                           |
 |                |        `bad_words_list`         |          [batch_size, 2, word_list_len]          |        int32        |                          **Optional**. List of tokens (words) to never sample. Should be generated with FasterTransformer/examples/pytorch/gpt/utils/word_list.py                           |
 |                |        `stop_words_list`        |          [batch_size, 2, word_list_len]          |        int32        |                         **Optional**. List of tokens (words) that stop sampling. Should be generated with FasterTransformer/examples/pytorch/gpt/utils/word_list.py                         |
@@ -96,8 +98,8 @@ The following table shows the details of these settings:
 |                |           `top_p_min`           |                   [batch_size]                   |        float        |                                                              **Optional**. min top_p values for top p factual-nucleus sampling                                                              |
 |                |        `top_p_reset_ids`        |                   [batch_size]                   |       uint32        |                                                    **Optional**. reset ids for reseting top_p values for top p factual-nucleus sampling                                                     |
 |     output     |                                 |                                                  |                     |                                                                                                                                                                                             |
-|                |          `output_ids`           |           [batch_size, beam_width, -1]           |       uint32        |                                                                              output ids before detokenization                                                                               |
-|                |        `sequence_length`        |                   [batch_size]                   |       uint32        |                                                                             real sequence length of each output                                                                             |
+|                |          `output_ids`           |           [batch_size, beam_width, -1]           |        int32        |                                                                              output ids before detokenization                                                                               |
+|                |        `sequence_length`        |                   [batch_size]                   |        int32        |                                                                             real sequence length of each output                                                                             |
 |                |         `cum_log_probs`         |             [batch_size, beam_width]             |        float        |                                                                 **Optional**. cumulative log probability of output sentence                                                                 |
 |                |       `output_log_probs`        | [batch_size, beam_width, request_output_seq_len] |        float        |                                                      **Optional**. It records the log probability of logits at each step for sampling.                                                      |
 |   parameter    |                                 |                                                  |                     |                                                                                                                                                                                             |
@@ -343,3 +345,102 @@ The model is finetuned by 5 epoches, and the accuracy on both FT and NeMo are 61
 ## Build an entire processing pipeline with Triton
 
 For T5-Encoder, there exists an example of tokenization in `all_models/t5-encoder/tokenizer`. This python model accepts sentences and convert them to token lists. It can be integrated in a Triton [ensemble model](https://github.com/triton-inference-server/server/blob/main/docs/user_guide/architecture.md#ensemble-models) together with the `fastertransformer` model. You may also consult GPT [documentation](./gpt_guide.md).
+
+## Run t5-v1.1/flan-t5/mt5
+
+* Download and convert model
+
+```bash
+sudo apt-get install git-lfs
+git lfs install
+git lfs clone https://huggingface.co/google/t5-v1_1-base
+
+python3 ./build/_deps/repo-ft-src/examples/pytorch/t5/utils/huggingface_t5_ckpt_convert.py \
+        -saved_dir t5-v1_1-base/c-models \
+        -in_file t5-v1_1-base/ \
+        -inference_tensor_para_size 1 \
+        -weight_data_type fp32
+```
+
+* Set `model_checkpoint_path` of config.pbtxt of t5 to be `t5-v1_1-base/c-models/1-gpu/`, `data_type` to be bf16. Then we can run the test
+
+```bash
+tritonserver --model-repository=all_models/t5/ &
+python3 tools/t5_utils/summarization.py --ft_model_location t5-v1_1-base/c-models/1-gpu/ \
+                                        --hf_model_location t5-v1_1-base/ \
+                                        --test_ft \
+                                        --test_hf \
+                                        --data_type bf16
+```
+
+Note that the `data_type` of `summarization.py` is only applied on HF. For FT runtime data type, it is determined in `config.pbtxt`.
+
+The results would be like
+
+```bash
+Hugging Face (total latency: 25.934800000000003 sec)
+rouge1 : 10.634929065699545
+rouge2 : 1.294018552608359
+rougeL : 8.717794995775769
+rougeLsum : 9.847273388318206
+Faster Transformers (total latency: 4.4652449999999995 sec)
+rouge1 : 12.718697590991363
+rouge2 : 2.6063702619627813
+rougeL : 9.143202490239666
+rougeLsum : 11.19553610260827
+```
+
+## Loading model by S3
+
+```bash
+# Setup backend
+# https://github.com/triton-inference-server/fastertransformer_backend#setup
+
+git clone https://github.com/triton-inference-server/fastertransformer_backend.git
+cd fastertransformer_backend
+
+export WORKSPACE=$(pwd) && export CONTAINER_VERSION=22.07 && export TRITON_DOCKER_IMAGE=triton_with_ft:${CONTAINER_VERSION} && docker build --rm --build-arg TRITON_VERSION=${CONTAINER_VERSION} -t ${TRITON_DOCKER_IMAGE} -f docker/Dockerfile .
+
+# Prepare model
+# https://github.com/triton-inference-server/fastertransformer_backend/blob/main/docs/t5_guide.md#prepare-triton-t5-model-store
+
+docker run --shm-size 6g --gpus all -v ~/triton/fastertransformer_backend:/opt/fastertransformer_backend -it --rm triton_with_ft:22.07 /bin/bash
+
+export WORKSPACE=$(pwd)
+git lfs clone https://huggingface.co/t5-small
+git clone https://github.com/NVIDIA/FasterTransformer.git
+python3 FasterTransformer/examples/pytorch/t5/utils/huggingface_t5_ckpt_convert.py -in_file t5-small/ -saved_dir ${WORKSPACE}/all_models/t5/fastertransformer/1/ -inference_tensor_para_size 1
+
+# Copy triton config.pbtxt
+cp -r /opt/fastertransformer_backend/all_models/t5/fastertransformer/config.pbtxt ${WORKSPACE}/all_models/t5/fastertransformer/config.pbtxt
+
+# Remove the model_checkpoint_path from config, because the backend will need to construct it during runtime to provide the correct path when using S3
+head -n -7 ${WORKSPACE}/all_models/t5/fastertransformer/config.pbtxt > tmp.txt && mv tmp.txt ${WORKSPACE}/all_models/t5/fastertransformer/config.pbtxt
+
+# Fix the default_model_filename, since the model name is "1-gpu" on the disk rather than "t5"
+sed -i "s/t5/1-gpu/" ${WORKSPACE}/all_models/t5/fastertransformer/config.pbtxt
+
+# Test locally, the local test must succeed, without setting model_checkpoint_path on config.pbtxt, to work on S3
+/opt/tritonserver/bin/tritonserver --model-repository ${WORKSPACE}/all_models/t5
+
+# Stop the server Ctrl-C
+
+# Install S3
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+./aws/install
+
+# Login to S3, and make sure "aws" command can create bucket
+
+# Create bucket and upload model repository
+export BUCKET_URL="s3://replace-with-the-bucket-name"
+aws s3 rm $BUCKET_URL --recursive --include "*" && aws s3 rb $BUCKET_URL
+aws s3 mb "${BUCKET_URL}"
+aws s3 cp ${WORKSPACE}/all_models/t5/ "${BUCKET_URL}/" --recursive --include "*"
+
+# Delete the local model repository to prevent accidentally using it
+rm -r ${WORKSPACE}/all_models/t5
+
+# Test S3
+/opt/tritonserver/bin/tritonserver --model-repository ${BUCKET_URL}
+```

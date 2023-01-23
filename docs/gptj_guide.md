@@ -157,7 +157,7 @@ docker run -it --rm --gpus=all --shm-size=1g --ulimit memlock=-1 -v ${WORKSPACE}
 
 export WORKSPACE=$(pwd)
 export SRC_MODELS_DIR=${WORKSPACE}/models
-git clone https://github.com/NVIDIA/FasterTransformer.git # Used for convert the checkpoint and triton output
+git clone https://gitlab-master.nvidia.com/dl/FasterTransformer/FasterTransformer.git # Used for convert the checkpoint and triton output
 wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-vocab.json -P models
 wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-merges.txt -P models
 wget https://mystic.the-eye.eu/public/AI/GPT-J-6B/step_383500_slim.tar.zstd

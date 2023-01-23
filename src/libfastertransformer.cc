@@ -78,6 +78,18 @@ namespace triton { namespace backend { namespace fastertransformer_backend {
     }                                                                  \
   } while (false)
 
+// Cuda Error handling
+TRITONSERVER_Error* ConvertCUDAStatusToTritonError(
+   cudaError_t cuda_error,TRITONSERVER_Error_Code code, const char* msg)
+{
+  if (cuda_error != cudaSuccess) {
+    return TRITONSERVER_ErrorNew(code, cudaGetErrorString(cuda_error));
+  }
+  return nullptr;  // success
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 // Ragged Baching
 
 struct RaggedBatchingParams {
@@ -90,6 +102,8 @@ struct RaggedBatchingParams {
 };
 
 using RaggedBatchingParam_Map = std::unordered_map<std::string, RaggedBatchingParams>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //
 // ModelState
@@ -443,7 +457,10 @@ ModelState::LoadModel(
     std::string* model_path,
     std::unique_ptr<AbstractTransformerModelInstance>* ft_model_instance)
 {
-  ft::check_cuda_error(cudaSetDevice(device_id));
+  LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
+      cudaSetDevice(device_id),
+      TRITONSERVER_ERROR_INTERNAL, "Failed to set cuda device"), "Failed to set cuda device");
+
   std::string cc_model_filename = artifact_name;
   if (cc_model_filename.empty()) {
     cc_model_filename = "gpt3-model";
@@ -455,9 +472,12 @@ ModelState::LoadModel(
   }
   ft::print_mem_usage();
 
-  cudaStreamCreate(&streams_[stream_id]);
+  LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
+      cudaStreamCreate(&streams_[stream_id]),
+      TRITONSERVER_ERROR_INTERNAL, "Failed to create the stream"), "Failed to create the stream");
+
   const int rank = node_id * GetGpuSize() + device_id - device_id_start;
-  ft::sync_check_cuda_error();
+
   auto model_instance = ft_model->createModelInstance(
       device_id, rank, streams_[stream_id], nccl_params_instance,
       custom_all_reduce_comms);
@@ -770,8 +790,13 @@ ModelInstanceState::ModelInstanceState(
   // NOTE: CPU_KIND only, the backend fully controls how to distribute models to GPUs
   model_instance_device_id_start_ = (model_instance_id_ * model_instance_gpu_size_) % gpu_size_;
   // create output tensor stream
-  ft::check_cuda_error(cudaSetDevice(model_instance_device_id_start_));
-  ft::check_cuda_error(cudaStreamCreate(&output_stream_));
+  LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
+      cudaSetDevice(model_instance_device_id_start_),
+      TRITONSERVER_ERROR_INTERNAL, "Failed to set cuda device"), "Failed to set cuda device");
+  LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
+      cudaStreamCreate(&output_stream_),
+      TRITONSERVER_ERROR_INTERNAL, "Failed to create the stream"), "Failed to create the stream");
+
   // create nccl params
   nccl_params_ = shared_ft_model->createNcclParams(node_id, model_instance_device_id_start_, num_nodes > 1);
 
@@ -1222,7 +1247,11 @@ ThreadForward(
     const int device_id, const int use_stream_cb,
     stream_callback_ctx_t* context)
 {
-  ft::check_cuda_error(cudaSetDevice(device_id));
+
+  LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
+      cudaSetDevice(device_id),
+      TRITONSERVER_ERROR_INTERNAL, "Failed to set cuda device"), "Failed to set cuda device");
+
   LOG_MESSAGE(TRITONSERVER_LOG_VERBOSE, (std::string("Start to forward")).c_str());
   if (use_stream_cb) {
     (*ft_model_instance)->registerCallback(streaming_callback, (void*)context);
