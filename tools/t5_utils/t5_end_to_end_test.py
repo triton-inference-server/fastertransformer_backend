@@ -67,6 +67,7 @@ class TranslationResult(object):
         self.batch_num = 0
         self.execution_time = 0.0  # seconds
         self.sentence_num = 0
+        self.token_num = 0
         self.bleu_score = None
             
 def translate(args_dict):
@@ -90,6 +91,7 @@ def translate(args_dict):
         tgt_text = recover_bpe(f.readlines())
 
     translation_result_list = []
+    translation_result_list.append(TranslationResult("ft_triton_warmup", "FT"))
     translation_result_list.append(TranslationResult("ft_triton", "FT"))
     for i in range(len(translation_result_list)):
         sys.stdout.flush()
@@ -118,7 +120,7 @@ def translate(args_dict):
                 runtime_top_p = topp * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 beam_search_diversity_rate = 0.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 temperature = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
-                len_penalty = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
+                len_penalty = 0.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 repetition_penalty = 1.0 * np.ones([input_ids.shape[0], 1]).astype(np.float32)
                 random_seed = 0 * np.ones([input_ids.shape[0], 1]).astype(np.uint64)
                 is_return_log_probs = True * np.ones([input_ids.shape[0], 1]).astype(bool)
@@ -161,7 +163,7 @@ def translate(args_dict):
                 print("get request")
                 results.append(result)
                 ite_idx += 1
-                if ite_idx > max_ite:
+                if ite_idx >= max_ite:
                     break
                 
             for result in results:
@@ -182,6 +184,7 @@ def translate(args_dict):
         for batch_token, batch_seq_len in zip(translation_result_list[i].batch_ids_list, translation_result_list[i].batch_seq_len_list):
             for j in range(len(batch_token)):
                 translation_result_list[i].token_list.append(fast_tokenizer.decode(batch_token[j][0][:batch_seq_len[j][0]], skip_special_tokens=True))
+                translation_result_list[i].token_num += batch_seq_len[j][0]
 
         translation_result_list[i].bleu_score = bleu_score(translation_result_list[i].token_list, tgt_text[:len(translation_result_list[i].token_list)])
         with open(translation_result_list[i].name + ".txt", 'w') as f:
@@ -191,8 +194,9 @@ def translate(args_dict):
     for t in translation_result_list:
         if t.name.find("warmup") != -1: 
             continue
-        print("[INFO] {} translates {} batches taking {:.2f} sec to translate {} tokens, BLEU score: {:.2f}, {:.0f} tokens/sec.".format(
-                t.name, t.batch_num, t.execution_time, t.bleu_score.sys_len, t.bleu_score.score, t.bleu_score.sys_len / t.execution_time))
+        print(f"{t.name} translates {t.batch_num} batches taking {t.execution_time:.2f} sec to translate "
+                f"{t.token_num} tokens, BLEU score: {t.bleu_score.score:.2f}, {(t.token_num / t.execution_time):.0f} tokens/sec."
+                f" ({t.bleu_score.sys_len} words, {(t.bleu_score.sys_len / t.execution_time):.0f} words/sec)")
     
         if args_dict["BLEU_threshold"] != None:
             assert t.bleu_score.score >= args_dict["BLEU_threshold"], f"[ERROR] {t.name} test fail!"

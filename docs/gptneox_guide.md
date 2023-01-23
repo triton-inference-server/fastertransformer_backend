@@ -152,7 +152,7 @@ docker run -it --rm --gpus=all --shm-size=1g --ulimit memlock=-1 -v ${WORKSPACE}
 
 export WORKSPACE=$(pwd)
 export SRC_MODELS_DIR=${WORKSPACE}/models
-git clone https://github.com/NVIDIA/FasterTransformer.git # Used for converting the checkpoint
+git clone https://gitlab-master.nvidia.com/dl/FasterTransformer/FasterTransformer.git # Used for converting the checkpoint
 wget --cut-dirs=5 -nH -r --no-parent --reject "index.html*" https://mystic.the-eye.eu/public/AI/models/GPT-NeoX-20B/slim_weights/ -P EleutherAI
 export PYTHONPATH=$PWD/FasterTransformer/:$PYTHONPATH
 python3 ${WORKSPACE}/FasterTransformer/examples/pytorch/gptneox/utils/eleutherai_gpt_neox_convert.py \

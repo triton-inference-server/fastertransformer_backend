@@ -103,7 +103,7 @@ For the issue of running the model with multi-gpu and multi-node, FasterTransfor
 git clone https://github.com/triton-inference-server/fastertransformer_backend.git
 cd fastertransformer_backend
 export WORKSPACE=$(pwd)
-export CONTAINER_VERSION=22.07
+export CONTAINER_VERSION=22.12
 export TRITON_DOCKER_IMAGE=triton_with_ft:${CONTAINER_VERSION}
 ```
 

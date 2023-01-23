@@ -48,7 +48,6 @@ The FasterTransformer GPT implementation are in [gpt_guide.md](https://github.co
       - [Issue request directly](#issue-request-directly)
     - [Interactive Text Generation](#interactive-text-generation)
     - [Run XGLM](#run-xglm)
-    - [Run BLOOM](#run-bloom)
   - [Run Triton server on multiple nodes](#run-triton-server-on-multiple-nodes)
     - [Prepare Triton model store for multi-node setup](#prepare-triton-model-store-for-multi-node-setup)
     - [Run on cluster with Enroot/Pyxis support](#run-on-cluster-with-enrootpyxis-support)
@@ -167,7 +166,7 @@ docker run -it --rm --gpus=all --shm-size=1g --ulimit memlock=-1 -v ${WORKSPACE}
 
 export WORKSPACE=$(pwd)
 export SRC_MODELS_DIR=${WORKSPACE}/models
-git clone https://github.com/NVIDIA/FasterTransformer.git # Used for convert the checkpoint and triton output
+git clone https://gitlab-master.nvidia.com/dl/FasterTransformer/FasterTransformer.git # Used for convert the checkpoint and triton output
 wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-vocab.json -P models
 wget https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-merges.txt -P models
 wget --content-disposition https://api.ngc.nvidia.com/v2/models/nvidia/megatron_lm_345m/versions/v0.0/zip -O megatron_lm_345m_v0.0.zip
