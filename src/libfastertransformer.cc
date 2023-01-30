@@ -65,6 +65,8 @@
 #include "src/fastertransformer/utils/mpi_utils.h"
 #include "src/fastertransformer/utils/nccl_utils.h"
 
+std::exception_ptr ptr[8];
+
 namespace ft = fastertransformer;
 
 namespace triton { namespace backend { namespace fastertransformer_backend {
@@ -1244,6 +1246,7 @@ ThreadForward(
     std::unique_ptr<AbstractTransformerModelInstance>* ft_model_instance,
     std::shared_ptr<std::unordered_map<std::string, Tensor>>* input_tensors,
     std::shared_ptr<std::unordered_map<std::string, Tensor>>* output_tensors,
+    std::exception_ptr* exception_ptr,
     const int device_id, const int use_stream_cb,
     stream_callback_ctx_t* context)
 {
@@ -1262,6 +1265,9 @@ ThreadForward(
   }
   LOG_MESSAGE(TRITONSERVER_LOG_VERBOSE, (std::string("Stop to forward")).c_str());
 
+  if ((*output_tensors)->count("error_message")) {
+    *exception_ptr = *((std::exception_ptr*)((*output_tensors)->at("error_message").data));
+  }
   return 0;
 }
 
@@ -1384,48 +1390,53 @@ ModelInstanceState::Execute(
     stream_callback_ctx_t* context, const uint32_t response_count,
     std::shared_ptr<std::unordered_map<std::string, Tensor>> input_tensors)
 {
+  int node_id = ft::mpi::getCommWorldRank();
+
+  if (node_id == 0) {
+    // Debug: input array
+    // triton_check_inputs(input_tensors, "triton_in");
+  }
+  if (node_id) {
+    input_tensors =
+        std::make_shared<std::unordered_map<std::string, Tensor>>();
+  }
+
+  ft::mpi::barrier();
+
+  BroadcastInputTensors(&input_tensors);
+  std::vector<std::thread> threads;
+  std::shared_ptr<std::unordered_map<std::string, Tensor>>
+      output_tensors_list[model_instance_gpu_size_];
+  std::exception_ptr exception_ptr[model_instance_gpu_size_];
+  for (int gid = model_instance_device_id_start_;
+    gid < model_instance_device_id_start_ + model_instance_gpu_size_; gid++)
+  {
+    int instance_local_id = gid - model_instance_device_id_start_;
+    LOG_MESSAGE(
+        TRITONSERVER_LOG_VERBOSE,
+        (std::string("before ThreadForward " + std::to_string(gid)))
+            .c_str());
+    threads.push_back(std::thread(
+        ThreadForward, &ft_model_instance_[instance_local_id], &input_tensors,
+        &output_tensors_list[instance_local_id], &exception_ptr[instance_local_id], gid,
+        is_decoupled_ && gid == model_instance_device_id_start_, context));
+    LOG_MESSAGE(
+        TRITONSERVER_LOG_VERBOSE,
+        (std::string("after ThreadForward " + std::to_string(gid)))
+            .c_str());
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
   try {
-    int node_id = ft::mpi::getCommWorldRank();
-
-    if (node_id == 0) {
-      // Debug: input array
-      // triton_check_inputs(input_tensors, "triton_in");
-    }
-    if (node_id) {
-      input_tensors =
-          std::make_shared<std::unordered_map<std::string, Tensor>>();
-    }
-
-    ft::mpi::barrier();
-
-    BroadcastInputTensors(&input_tensors);
-    std::vector<std::thread> threads;
-    std::shared_ptr<std::unordered_map<std::string, Tensor>>
-        output_tensors_list[model_instance_gpu_size_];
     for (int gid = model_instance_device_id_start_;
-      gid < model_instance_device_id_start_ + model_instance_gpu_size_; gid++)
-    {
-      int instance_local_id = gid - model_instance_device_id_start_;
-      LOG_MESSAGE(
-          TRITONSERVER_LOG_VERBOSE,
-          (std::string("before ThreadForward " + std::to_string(gid)))
-              .c_str());
-      threads.push_back(std::thread(
-          ThreadForward, &ft_model_instance_[instance_local_id], &input_tensors,
-          &output_tensors_list[instance_local_id], gid,
-          is_decoupled_ && gid == model_instance_device_id_start_, context));
-      LOG_MESSAGE(
-          TRITONSERVER_LOG_VERBOSE,
-          (std::string("after ThreadForward " + std::to_string(gid)))
-              .c_str());
+      gid < model_instance_device_id_start_ + model_instance_gpu_size_; gid++){
+        if (exception_ptr[gid]) {
+          std::rethrow_exception(exception_ptr[gid]);
+        }
     }
-
-    for (auto& t : threads) {
-      t.join();
-    }
-
-    auto output_tensors = output_tensors_list[0];
-    return output_tensors;
   }
   catch (std::exception& ex) {
     SendErrorForResponses(
@@ -1434,8 +1445,9 @@ ModelInstanceState::Execute(
             TRITONSERVER_ERROR_INTERNAL,
             ("FasterTransformer execute failure: " + std::string(ex.what()))
                 .c_str()));
-    return std::shared_ptr<std::unordered_map<std::string, Tensor>>(nullptr);
   }
+  auto output_tensors = output_tensors_list[0];
+  return output_tensors;
 }
 
 void
