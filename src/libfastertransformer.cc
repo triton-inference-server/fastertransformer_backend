@@ -1433,8 +1433,9 @@ ModelInstanceState::Execute(
   try {
     for (int gid = model_instance_device_id_start_;
       gid < model_instance_device_id_start_ + model_instance_gpu_size_; gid++){
-        if (exception_ptr[gid]) {
-          std::rethrow_exception(exception_ptr[gid]);
+        int instance_local_id = gid - model_instance_device_id_start_;
+        if (exception_ptr[instance_local_id]) {
+          std::rethrow_exception(exception_ptr[instance_local_id]);
         }
     }
   }
