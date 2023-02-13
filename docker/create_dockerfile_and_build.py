@@ -62,7 +62,7 @@ ARG BASE_IMAGE={base_image}
     '''.format(base_image=base_image)
     df += '''
 FROM ${BASE_IMAGE}
-RUN apt-get update && apt-get install -y --no-install-recommends \\
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \\
         autoconf \\
         autogen \\
         clangd \\
@@ -102,15 +102,14 @@ ADD . /workspace/build/fastertransformer_backend
 RUN mkdir -p /workspace/build/fastertransformer_backend/build
 WORKDIR /workspace/build/fastertransformer_backend/build
 RUN cmake \\
-      -D CMAKE_EXPORT_COMPILE_COMMANDS=1 \\
-      -D CMAKE_BUILD_TYPE=Release \\
-      -D CMAKE_INSTALL_PREFIX=/opt/tritonserver \\
-      -D TRITON_COMMON_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \\
-      -D TRITON_CORE_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \\
-      -D TRITON_BACKEND_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \\
-      ..
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \\
+      -DCMAKE_BUILD_TYPE=Release \\
+      -DCMAKE_INSTALL_PREFIX=/opt/tritonserver \\
+      -DTRITON_COMMON_REPO_TAG="r{}" \\
+      -DTRITON_CORE_REPO_TAG="r{}" \\
+      -DTRITON_BACKEND_REPO_TAG="r{}" ..
 RUN make -j"$(grep -c ^processor /proc/cpuinfo)" install
-    '''
+    '''.format(FLAGS.triton_version, FLAGS.triton_version, FLAGS.triton_version)
     return df
 
 
@@ -199,7 +198,7 @@ if __name__ == '__main__':
         FLAGS.image_name = "tritonserver_with_ft"
 
     if FLAGS.base_image is None:
-        base_image = "nvcr.io/nvidia/tritonserver:" + FLAGS.triton_version + "-py3"
+        base_image = "nvcr.io/nvidia/tritonserver:" + FLAGS.triton_version + "-py3-min"
     else:
         base_image = FLAGS.base_image
 
