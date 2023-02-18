@@ -75,5 +75,5 @@ jobs:
             TRITON_VERSION=${{ env.TRITON_VERSION }}
           context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ env.TRITON_VERSION }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
