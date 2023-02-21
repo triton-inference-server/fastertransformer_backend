@@ -1,2 +1,4 @@
 .git
 build
+cmake-build-*
+.idea

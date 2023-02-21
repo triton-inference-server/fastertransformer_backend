@@ -58,6 +58,7 @@ def parse_args():
     parser = ArgumentParser()
     parser.add_argument("request_file", nargs="?", default=None, metavar="request-file")
     parser.add_argument("--params")
+    parser.add_argument("-t", "--test", action="store_true")
     args = parser.parse_args()
 
     return args
@@ -102,8 +103,9 @@ def prepare_tensor(client, name, input):
     return t
 
 
-def stream_consumer(queue):
+def stream_consumer(queue, test: bool):
     start_time = None
+    tokens_before = np.array([], dtype=np.int32)
     while True:
         result = queue.get()
         if result is None:
@@ -122,6 +124,11 @@ def stream_consumer(queue):
         prob = result.as_numpy("cum_log_probs")[0, 0]
         print("[After {:.2f}s] Partial result (probability {:.2e}):\n{}\n".format(
             time.perf_counter() - start_time, np.exp(prob), tokens))
+        
+        if test:
+            assert len(tokens) == len(tokens_before) + 1
+            assert np.array_equal(tokens[:-1], tokens_before)
+            tokens_before = tokens
 
 
 def stream_callback(queue, result, error):
@@ -131,13 +138,13 @@ def stream_callback(queue, result, error):
         queue.put(result.get_response(as_json=True))
 
 
-def main_stream(config, request):
+def main_stream(config, request, test: bool):
     client_type = grpcclient
 
     kwargs = {"verbose": config["verbose"]}
     result_queue = mp.Queue()
 
-    consumer = mp.Process(target=stream_consumer, args=(result_queue,))
+    consumer = mp.Process(target=stream_consumer, args=(result_queue, test))
     consumer.start()
 
     with grpcclient.InferenceServerClient(config['url'], verbose=config["verbose"]) as cl:
@@ -178,4 +185,4 @@ if __name__ == "__main__":
     if not config['stream_api']:
         main_sync(config, request)
     else:
-        main_stream(config, request)
+        main_stream(config, request, args.test)

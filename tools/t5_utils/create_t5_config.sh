@@ -2,6 +2,7 @@ MODEL_PATH=$1
 TP=$2
 PP=$3
 DATA_TYPE=$4
+DECOUPLED_MODE=${5:-"False"}
 
 if [ $MODEL_PATH ]; then
   :
@@ -73,6 +74,9 @@ name: \"fastertransformer\"
 backend: \"fastertransformer\"
 default_model_filename: \"t5\"
 max_batch_size: 1024
+model_transaction_policy {
+  decoupled: ${DECOUPLED_MODE}
+}
 input [
   {
     name: \"input_ids\"
