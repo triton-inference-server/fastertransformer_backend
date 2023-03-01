@@ -47,6 +47,9 @@ class TritonPythonModel:
         self.output_dtype= pb_utils.triton_string_to_numpy(
             output_config['data_type'])
 
+        cur_folder = Path(__file__).parent
+        self.enc = encoder.get_encoder(str(cur_folder/VOCAB_FILE), str(cur_folder/MERGES_FILE))
+
     def execute(self, requests):
         """`execute` must be implemented in every Python model. `execute`
         function receives a list of pb_utils.InferenceRequest as the only
@@ -113,12 +116,9 @@ class TritonPythonModel:
 
 
     def _postprocessing(self, tokens_batch):
-        cur_folder = Path(__file__).parent
-        enc = encoder.get_encoder(str(cur_folder/VOCAB_FILE), str(cur_folder/MERGES_FILE))
-
         outputs = []
         for beam_tokens in tokens_batch:
             for tokens in beam_tokens:
-                output = enc.decode(tokens)
+                output = self.enc.decode(tokens)
                 outputs.append(output.encode('utf8'))
         return outputs 
