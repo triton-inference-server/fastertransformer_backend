@@ -153,7 +153,7 @@ But also you can build it manually in interactive session (ex during fixing code
 
 ```bash
 docker run -it \
-    –shm-size=1g –ulimit memlock=-1 \
+    --shm-size=1g --ulimit memlock=-1 \
     -v ${WORKSPACE}:/workspace \
     --name ft_backend_builder \
     ${TRITON_DOCKER_IMAGE} bash
