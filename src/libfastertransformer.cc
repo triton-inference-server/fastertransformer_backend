@@ -131,21 +131,24 @@ class ModelState : public BackendModel {
   int GetGpuSize() { return gpu_size; };
   int GetWorldSize() { return world_size; };
   int GetParallelSize() { return tp_pp_size; };
-  int GetInstanceId() { return current_model_instance_id++; };
-  int GetInstanceGroupCount() { return instance_group_count; };
-  bool SequenceBatchingEnabled() { return sequence_batching_enabled; };
-  bool DynamicBatchingEnabled() { return dynamic_batching_enabled; };
-  std::shared_ptr<AbstractTransformerModel> GetFtModel() { return ft_model; };
+  int GetInstanceId() { return current_model_instance_id_++; };
+  int GetInstanceGroupCount() { return instance_group_count_; };
+  cudaStream_t GetInstanceRootStream( int model_instance_id ) {
+    return streams_.at(model_instance_id * model_instance_gpu_count_); };
+  bool SequenceBatchingEnabled() { return sequence_batching_enabled_; };
+  bool DynamicBatchingEnabled() { return dynamic_batching_enabled_; };
+  std::shared_ptr<AbstractTransformerModel> GetFtModel() { return ft_model_; };
 
  private:
   ModelState(TRITONBACKEND_Model* triton_model);
   TRITONSERVER_Error* AutoCompleteConfig();
   std::string GetParameter(const char* parameter);
-  int current_model_instance_id = 0;
-  bool sequence_batching_enabled = false;
-  bool dynamic_batching_enabled = false;
-  int instance_group_count = 1;
-  std::shared_ptr<AbstractTransformerModel> ft_model;
+  int current_model_instance_id_ = 0;
+  bool sequence_batching_enabled_ = false;
+  bool dynamic_batching_enabled_ = false;
+  int instance_group_count_ = 1;
+  int model_instance_gpu_count_ = 1;
+  std::shared_ptr<AbstractTransformerModel> ft_model_;
   int node_id, gpu_size, world_size, tp_pp_size;
   std::vector<cudaStream_t> streams_;
 
@@ -368,7 +371,7 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
   int64_t instance_group_count_int64 = 1;
   instance_group_kind.AsString(&instance_group_kind_str);
   instance_group_count_val.AsInt(&instance_group_count_int64);
-  instance_group_count = (int) instance_group_count_int64;
+  instance_group_count_ = (int) instance_group_count_int64;
   LOG_MESSAGE(TRITONSERVER_LOG_INFO, ("Instance group type: " + instance_group_kind_str +
     " count: " + std::to_string(instance_group_count_int64)).c_str());
   if (instance_group_kind_str != "KIND_CPU") {
@@ -381,10 +384,10 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
   tp_pp_size = param_get_int(param, "tensor_para_size") * param_get_int(param, "pipeline_para_size");
   gpu_size = ft::getDeviceCount();
   world_size = gpu_size * num_nodes;
-  int model_instance_size = num_nodes > 1 ? gpu_size : tp_pp_size;
+  model_instance_gpu_count_ = num_nodes > 1 ? gpu_size : tp_pp_size;
   bool multi_model_instance_valid = (multi_node_enabled && tp_pp_size == world_size &&
-    instance_group_count == 1) || (!multi_node_enabled && gpu_size % tp_pp_size == 0 &&
-    model_instance_size * instance_group_count >=  gpu_size);
+    instance_group_count_ == 1) || (!multi_node_enabled && gpu_size % tp_pp_size == 0 &&
+    model_instance_gpu_count_ * instance_group_count_ >=  gpu_size);
   if (!multi_model_instance_valid) {
     THROW_IF_BACKEND_MODEL_ERROR(TRITONSERVER_ErrorNew(TRITONSERVER_ERROR_UNSUPPORTED,
       "1. Number of visible GPUs must be evenly divisble by TP * PP \n"
@@ -397,20 +400,20 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
 
   // sequence batching
   triton::common::TritonJson::Value sequence_batching;
-  sequence_batching_enabled = ModelConfig().Find("sequence_batching", &sequence_batching);
-  std::string sequence_batching_log = sequence_batching_enabled ? "enabled" : "disabled";
+  sequence_batching_enabled_ = ModelConfig().Find("sequence_batching", &sequence_batching);
+  std::string sequence_batching_log = sequence_batching_enabled_ ? "enabled" : "disabled";
   LOG_MESSAGE(TRITONSERVER_LOG_INFO, (std::string("Sequence Batching: ") + sequence_batching_log).c_str());
-  if (sequence_batching_enabled && max_batch_size != 1) {
+  if (sequence_batching_enabled_ && max_batch_size != 1) {
     THROW_IF_BACKEND_MODEL_ERROR(TRITONSERVER_ErrorNew(TRITONSERVER_ERROR_UNSUPPORTED,
       "Sequence Batching for interactive text generation: only supports max batch size = 1 currently !"));
   }
 
   // dynamic batching
   triton::common::TritonJson::Value dynamic_batching;
-  dynamic_batching_enabled = ModelConfig().Find("dynamic_batching", &dynamic_batching);
-  std::string dynamic_batching_log = dynamic_batching_enabled ? "enabled" : "disabled";
+  dynamic_batching_enabled_ = ModelConfig().Find("dynamic_batching", &dynamic_batching);
+  std::string dynamic_batching_log = dynamic_batching_enabled_ ? "enabled" : "disabled";
   LOG_MESSAGE(TRITONSERVER_LOG_INFO, (std::string("Dynamic Batching: ") + dynamic_batching_log).c_str());
-  if (dynamic_batching_enabled && sequence_batching_enabled) {
+  if (dynamic_batching_enabled_ && sequence_batching_enabled_) {
     THROW_IF_BACKEND_MODEL_ERROR(TRITONSERVER_ErrorNew(TRITONSERVER_ERROR_UNSUPPORTED,
       "Sequence Batching cannot work with dynamic batching at the same time !"));
   }
@@ -422,11 +425,11 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
     model_filename = std::to_string(param_get_int(param, "tensor_para_size")) + "-gpu";
   }
 
-  ft_model = ModelFactory(param, model_filename);
+  ft_model_ = ModelFactory(param, model_filename);
 
-  int total_weight_gpu_size = (instance_group_count * model_instance_size) >= gpu_size ?
-    gpu_size : (instance_group_count * model_instance_size);
-  streams_.resize(instance_group_count * model_instance_size);
+  int total_weight_gpu_size = (instance_group_count_ * model_instance_gpu_count_) >= gpu_size ?
+    gpu_size : (instance_group_count_ * model_instance_gpu_count_);
+  streams_.resize(instance_group_count_ * model_instance_gpu_count_);
 
   /* create shared weights
   assume 8 gpus, 8 model instances, Tensor Para Size 2
@@ -440,7 +443,7 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
   for (int gid = 0; gid < total_weight_gpu_size; gid++) {
     int rank = node_id * gpu_size + gid % tp_pp_size;
     threads.push_back(std::thread(&AbstractTransformerModel::createSharedWeights,
-      ft_model, gid, rank));
+      ft_model_, gid, rank));
   }
   for (auto& t : threads) {
     t.join();
@@ -475,13 +478,13 @@ ModelState::LoadModel(
   ft::print_mem_usage();
 
   LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
-      cudaStreamCreate(&streams_[stream_id]),
+      cudaStreamCreate(&streams_.at(stream_id)),
       TRITONSERVER_ERROR_INTERNAL, "Failed to create the stream"), "Failed to create the stream");
 
   const int rank = node_id * GetGpuSize() + device_id - device_id_start;
 
-  auto model_instance = ft_model->createModelInstance(
-      device_id, rank, streams_[stream_id], nccl_params_instance,
+  auto model_instance = ft_model_->createModelInstance(
+      device_id, rank, streams_.at(stream_id), nccl_params_instance,
       custom_all_reduce_comms);
   ft_model_instance->reset(model_instance.release());
 
@@ -679,6 +682,9 @@ class ModelInstanceState : public BackendModelInstance {
   int model_instance_gpu_size_ = 1;
   int model_instance_device_id_start_ = 0;
 
+  // has_set_device in the first request
+  bool has_set_device_ = false;
+
   // output tensor stream
   cudaStream_t output_stream_;
 
@@ -795,9 +801,10 @@ ModelInstanceState::ModelInstanceState(
   LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
       cudaSetDevice(model_instance_device_id_start_),
       TRITONSERVER_ERROR_INTERNAL, "Failed to set cuda device"), "Failed to set cuda device");
-  LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
-      cudaStreamCreate(&output_stream_),
-      TRITONSERVER_ERROR_INTERNAL, "Failed to create the stream"), "Failed to create the stream");
+
+  // Reuse the root-rank stream during model loading
+  // Also make sure that model inference and Responder.memcpy use the same stream
+  output_stream_ = model_state->GetInstanceRootStream(model_instance_id_);
 
   // create nccl params
   nccl_params_ = shared_ft_model->createNcclParams(node_id, model_instance_device_id_start_, num_nodes > 1);
@@ -808,12 +815,13 @@ ModelInstanceState::ModelInstanceState(
     gid < model_instance_device_id_start_ + model_instance_gpu_size_; gid++)
   {
     model_instance_gpu_ids += (std::to_string(gid) + " ");
+    int model_instance_local_gid = gid - model_instance_device_id_start_;
     threads.push_back(std::thread(
         ThreadLoadModel, model_state, ArtifactFilename(), node_id, gid,
         model_instance_device_id_start_,
-        model_instance_id_ * model_instance_gpu_size_ + gid,  nccl_params_,
-        custom_all_reduce_comms_[gid - model_instance_device_id_start_],
-        &model_path_, &ft_model_instance_[gid - model_instance_device_id_start_]));
+        model_instance_id_ * model_instance_gpu_size_ + model_instance_local_gid,  nccl_params_,
+        custom_all_reduce_comms_[model_instance_local_gid],
+        &model_path_, &ft_model_instance_[model_instance_local_gid]));
   }
   model_instance_gpu_ids += "]";
 
@@ -979,6 +987,13 @@ ModelInstanceState::ProcessRequests(
           .c_str());
   uint64_t exec_start_ns = 0;
   SET_TIMESTAMP(exec_start_ns);
+
+  if (!has_set_device_) {
+    LOG_IF_ERROR(ConvertCUDAStatusToTritonError(
+      cudaSetDevice(model_instance_device_id_start_),
+      TRITONSERVER_ERROR_INTERNAL, "Failed to set cuda device"), "Failed to set cuda device");
+    has_set_device_ = true;
+  }
 
   const int max_batch_size = model_state_->MaxBatchSize();
 
@@ -1414,7 +1429,7 @@ ModelInstanceState::Execute(
     int instance_local_id = gid - model_instance_device_id_start_;
     LOG_MESSAGE(
         TRITONSERVER_LOG_VERBOSE,
-        (std::string("before ThreadForward " + std::to_string(gid)))
+        (std::string("before ThreadForward " + std::to_string(instance_local_id)))
             .c_str());
     threads.push_back(std::thread(
         ThreadForward, &ft_model_instance_[instance_local_id], &input_tensors,
@@ -1422,7 +1437,7 @@ ModelInstanceState::Execute(
         is_decoupled_ && gid == model_instance_device_id_start_, context));
     LOG_MESSAGE(
         TRITONSERVER_LOG_VERBOSE,
-        (std::string("after ThreadForward " + std::to_string(gid)))
+        (std::string("after ThreadForward " + std::to_string(instance_local_id)))
             .c_str());
   }
 
