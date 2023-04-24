@@ -120,8 +120,7 @@ The following table shows the details of these settings:
 |                |        `top_p_decay`         |          [batch_size]          |   float   |                           **Optional**. decay values for top_p factual-nucleus sampling                           |
 |                |         `top_p_min`          |          [batch_size]          |   float   |                         **Optional**. min top_p values for top p factual-nucleus sampling                         |
 |                |      `top_p_reset_ids`       |          [batch_size]          |  uint32   |               **Optional**. reset ids for reseting top_p values for top p factual-nucleus sampling                |
-
-|     output     |                              |                                |           |                                                                                                                   |
+|     output     |                              |                                |           |                                                                                                                 |
 |                |         `output_ids`         | [batch_size, beam_width, -1]   |  uint32   |                                         output ids before detokenization                                          |
 |                |      `sequence_length`       | [batch_size, beam_width]       |  uint32   |                                       final sequence lengths of output ids                                        |
 |                |       `cum_log_probs`        | [batch_size, beam_width]       |   float   |                             cumulative log probability of output sentence (optional)                              |
