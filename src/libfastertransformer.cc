@@ -333,13 +333,9 @@ std::shared_ptr<AbstractTransformerModel> ModelState::ModelFactory(
     }
   } else if (model_type == "Llama") {
     if (data_type == "fp16") {
-      ft_model = std::make_shared<LlamaTritonModel<half>>(tp, pp, custom_ar, model_dir, 0);
-#ifdef ENABLE_BF16
-    } else if (data_type == "bf16") {
-      ft_model = std::make_shared<LlamaTritonModel<__nv_bfloat16>>(tp, pp, custom_ar, model_dir, 0);
-#endif
+      ft_model = std::make_shared<LlamaTritonModel<half>>(tp, pp, custom_ar, model_dir);
     } else if (data_type == "fp32") {
-      ft_model = std::make_shared<LlamaTritonModel<float>>(tp, pp, custom_ar, model_dir, 0);
+      ft_model = std::make_shared<LlamaTritonModel<float>>(tp, pp, custom_ar, model_dir);
     } else {
       LOG_MESSAGE(TRITONSERVER_LOG_ERROR, dt_message.c_str());
     }
