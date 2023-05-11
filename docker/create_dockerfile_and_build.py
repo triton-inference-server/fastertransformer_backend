@@ -61,7 +61,7 @@ def create_dependencies(base_image):
 ARG BASE_IMAGE={base_image}
     '''.format(base_image=base_image)
     df += '''
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS build_image
 RUN apt-get update && apt-get install -y --no-install-recommends \\
         autoconf \\
         autogen \\
