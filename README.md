@@ -1,5 +1,5 @@
 <!--
-# Copyright (c) 2021 - 2022, NVIDIA CORPORATION. All rights reserved.
+# Copyright 2021-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -25,6 +25,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 -->
+
+**NOTE: Fastertransformer backend is currently undergoing restructuring. Build instructions are only tested with Triton container versions <= `23.04`**. 
 
 # FasterTransformer Backend
 
@@ -103,7 +105,7 @@ For the issue of running the model with multi-gpu and multi-node, FasterTransfor
 git clone https://github.com/triton-inference-server/fastertransformer_backend.git
 cd fastertransformer_backend
 export WORKSPACE=$(pwd)
-export CONTAINER_VERSION=22.12
+export CONTAINER_VERSION=23.04
 export TRITON_DOCKER_IMAGE=triton_with_ft:${CONTAINER_VERSION}
 ```
 
@@ -115,14 +117,14 @@ FasterTransformer backend, thus the users must prepare own docker image either b
    Note the `--is-multistage-build` is optional. It installs the minimal dependencies that allow fastertransformer_backend to run
 ```bash
 # Create your own Triton container. You can skip this step (done in trtionserver/server)
-python3 compose.py --backend pytorch --container-version 22.12 --output-name tritonserver_pytorch_only
+python3 compose.py --backend pytorch --container-version 23.04 --output-name tritonserver_pytorch_only
 # In tritonserver/fastertransformer_backend. This will overwrite the current Dockerfile
 python3 docker/create_dockerfile_and_build.py --base-image tritonserver_pytorch_only --image-name tritonserver_with_ft --is-multistage-build
 
 ```
   Alternatively you can simply run
 ```bash
-python3 create_dockerfile_and_build.py --triton-version 22.12
+python3 create_dockerfile_and_build.py --triton-version 23.04
 ```
 to generate a fastertransformer backend, like done in option 2.
 
