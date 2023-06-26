@@ -42,7 +42,9 @@ class TritonPythonModel:
             output_config['data_type'])
 
         from transformers import LlamaTokenizer
-        self.tokenizer = LlamaTokenizer.from_pretrained('/data/llama-7b-hf')
+        
+        # customize
+        self.tokenizer = LlamaTokenizer.from_pretrained("/ft_workspace/llama_7b_hf")
         # self.tokenizer = LlamaTokenizer.from_pretrained("decapoda-research/llama-7b-hf")
 
     def execute(self, requests):

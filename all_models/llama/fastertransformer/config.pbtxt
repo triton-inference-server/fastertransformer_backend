@@ -199,7 +199,7 @@ instance_group [
 parameters {
   key: "tensor_para_size"
   value: {
-    string_value: "1"
+    string_value: "2"
   }
 }
 parameters {
@@ -223,7 +223,7 @@ parameters {
 parameters {
   key: "model_checkpoint_path"
   value: {
-    string_value: "/workspace/ft/models/ft/llama/1-gpu/"
+    string_value: "/ft_workspace/adapter_ft_library/models/llama_7b/2-gpu/"
   }
 }
 parameters {
