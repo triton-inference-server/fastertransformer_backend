@@ -16,6 +16,10 @@ ARG TRITON_VERSION=22.12
 ARG BASE_IMAGE=nvcr.io/nvidia/tritonserver:${TRITON_VERSION}-py3
 FROM ${BASE_IMAGE}
 
+RUN   apt-key del 7fa2af80
+ADD   https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb .
+RUN   dpkg -i cuda-keyring_1.0-1_all.deb
+
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
         autoconf \
