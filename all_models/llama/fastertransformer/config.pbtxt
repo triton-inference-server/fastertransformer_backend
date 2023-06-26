@@ -223,7 +223,7 @@ parameters {
 parameters {
   key: "model_checkpoint_path"
   value: {
-    string_value: "/ft_workspace/adapter_ft_library/models/llama_7b/2-gpu/"
+    string_value: "/ft_workspace/adapter_ft_library/models/llama/2-gpu/"
   }
 }
 parameters {
