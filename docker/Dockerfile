@@ -62,6 +62,7 @@ RUN cmake \
       -D TRITON_COMMON_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
       -D TRITON_CORE_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
       -D TRITON_BACKEND_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
+      -D CMAKE_BUILD_TYPE=Debug \
       ..
 RUN cd _deps/repo-ft-src/ && \
     git log | head -n 3 2>&1 | tee /workspace/build/fastertransformer_backend/FT_version.txt && \
