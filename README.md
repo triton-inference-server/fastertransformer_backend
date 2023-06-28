@@ -32,33 +32,76 @@
 
 **The triton faster transformer backend works as an interface to call FasterTransformer in triton.**
 
-All implements are actually in [FasterTransformer]() repository.
+All necessary implements are actually in [FasterTransformer](https://github.com/void-main/FasterTransformer) repository.
 
 The `CMakeList.txt` will fetch relative repository to organize and compile the project with:
 
 + this repository itself
 + Faster Transformer repository
 + 3rdparty
-+ cutlass
-
-etc...
+  + cutlass
+  + Megatron
+  + etc...
 
 # 2. LLaMa support
-To check how faster transformer support LLaMa, and how triton ft support LLaMa, here are three links you may be interested:
 
-## 2.1 LLaMa example
-https://github.com/SamuraiBUPT/adapter_ft_library/tree/main/examples/cpp/llama
+To check how faster transformer support LLaMa, and how triton support LLaMa, here is the  structure:
 
-the example includes works from `2.2 LLaMa support implement`, the actual work is in `2.2`.
+```
+Faster Transformer Library
+├── examples
+│   └── cpp
+│       └── llama
+│           ├── CMakeList.txt
+│           ├── llama_config.ini
+│           ├── llama_example.cc
+│           └── llama_triton_example.cc
+└── src
+    └── fastertransformer
+        ├── models
+        │   └── llama
+        │       ├── CMakeList.txt
+        │       ├── Llama.h
+        │       ├── LlamaContextDecoder.h
+        │       ├── LlamaDecoder.h
+        │       ├── LlamaDecoderLayerWeight.h
+        │       └── LlamaWeight.h
+        └── triton_backend
+            └── llama
+                ├── CMakeList.txt
+                ├── LlamaTritonModel.h
+                └── LlamaTritonModelInstance.h
 
-## 2.2 LLaMa support implement
-https://github.com/SamuraiBUPT/adapter_ft_library/tree/main/src/fastertransformer/models/llama
+Faster Transformer Backend
+├── all_models
+│   └── llama
+│       ├── ensemble
+│       ├── fastertransformer
+│       ├── postprocessing
+│       └── preprocessing
+└── src
+    └── libfastertransformer.cc
+```
 
-This is the core implement to support LLaMa in faster transformer.
+## 2.1 build your faster transformer library
 
-## 2.3 LLaMa triton faster transformer backend support
-https://github.com/SamuraiBUPT/adapter_ft_library/tree/main/src/fastertransformer/triton_backend/llama
+The [faster transformer repository](https://github.com/void-main/FasterTransformer) work as a  **library** to support different models.
 
-It's surprising that triton support was put in Faster Transformer repository. 
+### 2.1.1 **(essential)** faster transformer library for your_model
 
-Maybe that is because they will be finally compiled as a whole, so never mind the job of mixed developed.
+`examples/cpp/your_model` is essential if you want to run your model on faster transformer.
+
+### 2.1.2 **(essential)** examples for your_model
+
+`src/fastertransformer/models/your_model` is essential because it stores `your_model_config.ini`, and other files (`bad_words.csv`) to ensure your model to work well.
+
+### 2.1.3 **(optional)** triton backend
+
+`src/triton_backend/your/model` is optional. 
+
+Only when you want to deploy your model on triton server with faster transformer backend, you need to implement this part.
+
+# 3. Quick Start
+
+We have deployed llama-7b to triton inference server, see the [llama_guide](./docs/llama_guide.md) to boost your deploying work and get familiar with [NVIDIA Triton Inference Server](https://github.com/triton-inference-server)
+
