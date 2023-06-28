@@ -102,6 +102,14 @@ parameters {
 }
 ```
 
+And you should check the `triton-model-store/llama/preprocess/1/model.py` as well as `triton-model-store/llama/postprocess/1/model.py`:
+
+```python
+self.tokenizer = LlamaTokenizer.from_pretrained("/ft_workspace/llama_7b_hf")
+```
+
+change this path to your `llama-7b-hf` path.
+
 ## 3. Compile the Faster Transformer Library
 
 The Faster Transformer Library stores the core scripts for llama model supporting, so it's necessary to finish this compile work.

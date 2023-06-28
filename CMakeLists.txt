@@ -110,7 +110,7 @@ if (EXISTS ${FT_DIR})
 else()
   FetchContent_Declare(
     repo-ft
-    GIT_REPOSITORY https://github.com/SamuraiBUPT/adapter_ft_library.git
+    GIT_REPOSITORY https://github.com/SamuraiBUPT/ft_library.git
     GIT_TAG main
     GIT_SHALLOW ON
   )
