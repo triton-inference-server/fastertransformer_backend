@@ -68,7 +68,7 @@ python3 ./examples/cpp/llama/huggingface_llama_convert.py -saved_dir=./models/ll
 
 **caution:** We are infering llama-7b on 2 GPU, you should change the `-infer_gpu_num` to meet your environment.
 
-### 2.2 configure the path
+### 2.2 configure the in `config.pbtxt`
 
 ```bash
 cd ..
@@ -102,13 +102,17 @@ parameters {
 }
 ```
 
-And you should check the `triton-model-store/llama/preprocess/1/model.py` as well as `triton-model-store/llama/postprocess/1/model.py`:
+### 2.3 configure the `model.py` 
+
+You should check :
++ `triton-model-store/llama/preprocess/1/model.py` 
++ `triton-model-store/llama/postprocess/1/model.py`:
 
 ```python
 self.tokenizer = LlamaTokenizer.from_pretrained("/ft_workspace/llama_7b_hf")
 ```
 
-change this path to your `llama-7b-hf` path.
+Make sure the path meet your `llama-7b-hf` model path. This is important to your **preprocess** ans **postprocess** jobs
 
 ## 3. Compile the Faster Transformer Library
 
