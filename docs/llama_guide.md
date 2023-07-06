@@ -195,3 +195,8 @@ I0628 02:59:06.219577 11650 http_server.cc:184] Started Metrics Service at 0.0.0
 ```
 
 That means the program was launched successfully.
+
+# Update
++ offer `int8_mode` support in `libfastertransformer.cc` to make sure the compiler can find matching function.
++ remove `decoupled mode: true` in [config.pbtxt](../all_models/llama/fastertransformer/config.pbtxt#L31)
+  the `decoupled mode` seems to be a bug, not fixed so far. If you have any solution to this, welcome to contribute.
