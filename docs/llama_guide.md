@@ -5,7 +5,8 @@ We have deployed LLaMa on triton inference server with faster transformer backen
 + Ubuntu 20.04
 + docker: 24.0.2
 + cmake
-+ python
++ python: 3.10.6
++ pip: 23.1.2
 
 Hardware:
 + RTX 3090 (24G VMEM) * 2
@@ -26,12 +27,14 @@ We will expand our work in `llama_deploy` directory.
 ## 1. build docker image
 To reproduce all further steps that would be easier to run everything into Docker container. So it's necessary to build a triton docker image for next steps.
 
+The reason why we choose the image tag:23.04 is that this may support the decoupled mode. See this [issue](https://github.com/triton-inference-server/server/issues/6002#issuecomment-1617106369) for more info.
+
 ```bash
 git clone https://github.com/void-main/fastertransformer_backend.git
 
 cd fastertransformer_backend
 
-sudo docker build --rm --build-arg TRITON_VERSION=22.12 -t triton_ft_backend:22.12 -f docker/Dockerfile .
+sudo docker build --rm --build-arg TRITON_VERSION=23.04 -t triton_ft_backend:23.04 -f docker/Dockerfile .
 ```
 
 The build process may take more than five minutes, depending on your hardware.
@@ -41,7 +44,7 @@ When finished, launch the container:
 ```bash
 cd ../
 
-sudo docker run -it --rm --gpus=all --net=host --shm-size=4G  -v $(pwd):/ft_workspace -p8888:8888 -p8000:8000 -p8001:8001 -p8002:8002 triton_ft_backend:22.12 bash 
+sudo docker run -it --rm --gpus=all --net=host --shm-size=4G  -v $(pwd):/ft_workspace -p8888:8888 -p8000:8000 -p8001:8001 -p8002:8002 triton_ft_backend:23.04 bash 
 ```
 
 We have mapped the `llama_deploy` directory to `/ft_workspace` inside the container.
@@ -198,5 +201,4 @@ That means the program was launched successfully.
 
 # Update
 + offer `int8_mode` support in `libfastertransformer.cc` to make sure the compiler can find matching function.
-+ remove `decoupled mode: true` in [config.pbtxt](../all_models/llama/fastertransformer/config.pbtxt#L31)
-  the `decoupled mode` seems to be a bug, not fixed so far. If you have any solution to this, welcome to contribute.
++ fix the `decoupled mode` support, you may get access to decoupled mode with a higher version of tritonserver base image! (23.04 tested)
