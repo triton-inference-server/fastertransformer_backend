@@ -332,8 +332,8 @@ std::shared_ptr<AbstractTransformerModel> ModelState::ModelFactory(
 #endif
     }
   } else if (model_type == "Llama") {
-    if (data_type == "fp16") {
       const int         int8_mode  = param_get_int(param, "int8_mode");
+    if (data_type == "fp16") {
       ft_model = std::make_shared<LlamaTritonModel<half>>(tp, pp, custom_ar, model_dir, int8_mode);
 #ifdef ENABLE_BF16
     } else if (data_type == "bf16") {
