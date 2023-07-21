@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG TRITON_VERSION=22.12
+ARG TRITON_VERSION=23.05
 ARG BASE_IMAGE=nvcr.io/nvidia/tritonserver:${TRITON_VERSION}-py3
 FROM ${BASE_IMAGE}
 
-RUN apt-get update
-RUN apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         autoconf \
         autogen \
         clangd \
@@ -35,14 +35,14 @@ RUN apt-get install -y --no-install-recommends \
         unzip \
         zstd \
         zip \
-        zsh
-RUN pip3 install torch==1.12.1+cu116 -f https://download.pytorch.org/whl/torch_stable.html && \
-    pip3 install --extra-index-url https://pypi.ngc.nvidia.com regex fire tritonclient[all] && \
-    pip3 install transformers huggingface_hub tokenizers SentencePiece sacrebleu datasets tqdm omegaconf rouge_score && \
-    pip3 install cmake==3.24.3
-
-RUN apt-get clean && \
+        zsh && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.0.1+cu118 && \
+    pip3 install --no-cache-dir --extra-index-url https://pypi.ngc.nvidia.com regex fire tritonclient[all] && \
+    pip3 install --no-cache-dir accelerate transformers huggingface_hub tokenizers SentencePiece sacrebleu datasets tqdm omegaconf rouge_score && \
+    pip3 install --no-cache-dir cmake==3.24.3
 
 # backend build
 ADD . /workspace/build/fastertransformer_backend
@@ -50,7 +50,7 @@ RUN mkdir -p /workspace/build/fastertransformer_backend/build
 
 WORKDIR /workspace/build/fastertransformer_backend/build
 ARG FORCE_BACKEND_REBUILD=0
-RUN cmake \
+RUN CUDAFLAGS="-include stdio.h" cmake \
       -D CMAKE_EXPORT_COMPILE_COMMANDS=1 \
       -D CMAKE_BUILD_TYPE=Release \
       -D ENABLE_FP8=OFF \
@@ -58,11 +58,11 @@ RUN cmake \
       -D TRITON_COMMON_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
       -D TRITON_CORE_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
       -D TRITON_BACKEND_REPO_TAG="r${NVIDIA_TRITON_SERVER_VERSION}" \
-      ..
-RUN cd _deps/repo-ft-src/ && \
+      .. && \
+    cd _deps/repo-ft-src/ && \
     git log | head -n 3 2>&1 | tee /workspace/build/fastertransformer_backend/FT_version.txt && \
     cd /workspace/build/fastertransformer_backend/build && \
-    make -j"$(grep -c ^processor /proc/cpuinfo)" install && \
+    CUDAFLAGS="-include stdio.h" make -O -j"$(grep -c ^processor /proc/cpuinfo)" install && \
     rm /workspace/build/fastertransformer_backend/build/bin/*_example -rf && \
     rm /workspace/build/fastertransformer_backend/build/lib/lib*Backend.so -rf
 
