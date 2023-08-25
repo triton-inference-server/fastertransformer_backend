@@ -49,6 +49,7 @@
 
 // FT's libraries have dependency with triton's lib
 #include "src/fastertransformer/triton_backend/bert/BertTritonModel.h"
+#include "src/fastertransformer/triton_backend/deberta/DebertaTritonModel.h"
 #include "src/fastertransformer/triton_backend/gptj/GptJTritonModel.h"
 #include "src/fastertransformer/triton_backend/gptj/GptJTritonModelInstance.h"
 #include "src/fastertransformer/triton_backend/gptneox/GptNeoXTritonModel.h"
@@ -343,6 +344,22 @@ std::shared_ptr<AbstractTransformerModel> ModelState::ModelFactory(
     } else if (data_type == "bf16") {
       ft_model = std::make_shared<LlamaTritonModel<__nv_bfloat16>>(
             tp, pp, custom_ar, model_dir, int8_mode);
+#endif
+    }
+  } else if (model_type == "deberta") {
+    const int is_sparse      = param_get_bool(param,"is_sparse", false);
+    const int remove_padding = param_get_bool(param,"is_remove_padding", false);
+
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<DebertaTritonModel<half>>(
+            tp, pp, custom_ar, model_dir, is_sparse, remove_padding);
+    } else if (data_type == "fp32") {
+      ft_model = std::make_shared<DebertaTritonModel<float>>(
+            tp, pp, custom_ar, model_dir, is_sparse, remove_padding);
+#ifdef ENABLE_BF16
+    } else if (data_type == "bf16") {
+      ft_model = std::make_shared<DebertaTritonModel<__nv_bfloat16>>(
+            tp, pp, custom_ar, model_dir, is_sparse, remove_padding);
 #endif
     }
   } else {
