@@ -110,7 +110,7 @@ if (EXISTS ${FT_DIR})
 else()
   FetchContent_Declare(
     repo-ft
-    GIT_REPOSITORY https://github.com/neevaco/FasterTransformer 
+    GIT_REPOSITORY https://github.com/neevaco/FasterTransformer.git 
     GIT_TAG affa1ef1c175d03db8ff5b14824cc58dd2c52c2b
     GIT_SHALLOW ON
   )
