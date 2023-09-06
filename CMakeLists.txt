@@ -50,6 +50,9 @@ endif()
 set(USE_TRITONSERVER_DATATYPE "ON")
 message("-- Enable USE_TRITONSERVER_DATATYPE")
 
+# Required for Ubuntu 22.04/Triton 22.05+
+set(CMAKE_CUDA_FLAGS "-include stdio.h")
+
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
 # Python.h needed by torch headers.

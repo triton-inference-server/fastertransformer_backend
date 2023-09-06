@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 -->
 
-**NOTE: Fastertransformer backend is currently undergoing restructuring. Build instructions are only tested with Triton container versions <= `23.04`**. 
+**NOTE: Fastertransformer backend is currently undergoing restructuring so might not work with all versions of Triton.** 
 
 # FasterTransformer Backend
 
