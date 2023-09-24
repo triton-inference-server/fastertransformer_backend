@@ -49,6 +49,7 @@
 
 // FT's libraries have dependency with triton's lib
 #include "src/fastertransformer/triton_backend/bert/BertTritonModel.h"
+#include "src/fastertransformer/triton_backend/bart/BartTritonModel.h"
 #include "src/fastertransformer/triton_backend/deberta/DebertaTritonModel.h"
 #include "src/fastertransformer/triton_backend/gptj/GptJTritonModel.h"
 #include "src/fastertransformer/triton_backend/gptj/GptJTritonModelInstance.h"
