@@ -1570,6 +1570,8 @@ ModelInstanceState::SetInputTensors(
               BackendMemory::Create(
                   model_state_->TritonMemoryManager(), {BackendMemory::AllocationType::CPU},
                   0, dst_buffer_byte_size / num_feature_dimensions, &batch_item_shape_memory));
+          input_memories->push_back(batch_item_shape_memory);
+          
           int32_t* batch_item_shape_memory_ptr =
             reinterpret_cast<int32_t*>(batch_item_shape_memory->MemoryPtr());
           for (size_t idx = 0; idx < param.batch_intput_size; idx++) {
@@ -1667,11 +1669,14 @@ ModelInstanceState::SetInputTensors(
           BackendMemory::Create(
               model_state_->TritonMemoryManager(), {BackendMemory::AllocationType::CPU},
               0, padded_input_ids_buffer_size, &padded_input_memory));
+      input_memories->push_back(padded_input_memory);
+        
       RESPOND_ALL_AND_RETURN_IF_ERROR(
           responses, request_count,
           BackendMemory::Create(
               model_state_->TritonMemoryManager(), {BackendMemory::AllocationType::CPU},
               0, padded_input_ids_buffer_size, &request_input_memory));
+      input_memories->push_back(request_input_memory);
 
       memset(padded_input_memory->MemoryPtr(), 0, padded_input_ids_buffer_size);
 
