@@ -1,0 +1,13 @@
+include(CMakeFindDependencyMacro)
+
+get_filename_component(
+  ISOLATED_BATCHER_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH
+)
+
+list(APPEND CMAKE_MODULE_PATH ${ISOLATED_BATCHER_CMAKE_DIR})
+
+if(NOT TARGET isolated-batcher)
+  include("${ISOLATED_BATCHER_CMAKE_DIR}/IsolatedBatcherTargets.cmake")
+endif()
+
+set(ISOLATED_BATCHER_LIBRARIES isolated-batcher)
