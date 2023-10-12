@@ -114,7 +114,7 @@ else()
   FetchContent_Declare(
     repo-ft
     GIT_REPOSITORY https://github.com/neevaco/FasterTransformer.git 
-    GIT_TAG e2bc80686859eb4bf83c66ee49beee8d29e8aafd
+    GIT_TAG d1f088243f98ea967b44658ba8b50dd05da1a2eb
   )
 endif()
 FetchContent_MakeAvailable(repo-common repo-core repo-backend repo-ft)
