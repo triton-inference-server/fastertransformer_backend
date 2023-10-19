@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 -->
 
-**NOTE: Fastertransformer backend is currently undergoing restructuring so might not work with all versions of Triton.** 
+**Note: FasterTransformer development has transitioned to TensorRT-LLM. All developers are encouraged to leverage [TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM/tree/release/0.5.0) and [tensorrtllm_backend](https://github.com/triton-inference-server/tensorrtllm_backend) to get the latest improvements on LLM Inference. The NVIDIA/FasterTransformer repo will stay up, but will not have further development.** 
 
 # FasterTransformer Backend
 
