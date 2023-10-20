@@ -42,7 +42,8 @@ RUN apt-get update && \
 RUN pip3 install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.0.1+cu118 && \
     pip3 install --no-cache-dir --extra-index-url https://pypi.ngc.nvidia.com regex fire tritonclient[all] && \
     pip3 install --no-cache-dir accelerate transformers huggingface_hub tokenizers SentencePiece sacrebleu datasets tqdm omegaconf rouge_score && \
-    pip3 install --no-cache-dir cmake==3.24.3
+    pip3 install --no-cache-dir cmake==3.24.3 && \
+    pip3 install --no-cache-dir langid==1.1.6
 
 # backend build
 ADD . /workspace/build/fastertransformer_backend
