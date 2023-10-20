@@ -55,6 +55,8 @@
 #include "src/fastertransformer/triton_backend/gptneox/GptNeoXTritonModelInstance.h"
 #include "src/fastertransformer/triton_backend/multi_gpu_gpt/ParallelGptTritonModel.h"
 #include "src/fastertransformer/triton_backend/multi_gpu_gpt/ParallelGptTritonModelInstance.h"
+#include "src/fastertransformer/triton_backend/llama/LlamaTritonModel.h"
+#include "src/fastertransformer/triton_backend/llama/LlamaTritonModelInstance.h"
 #include "src/fastertransformer/triton_backend/t5/T5TritonModel.h"
 #include "src/fastertransformer/triton_backend/t5/T5TritonModelInstance.h"
 #include "src/fastertransformer/triton_backend/t5-encoder/T5EncoderTritonModel.h"
@@ -328,6 +330,18 @@ std::shared_ptr<AbstractTransformerModel> ModelState::ModelFactory(
       ft_model = std::make_shared<BertTritonModel<__nv_bfloat16>>(
             tp, pp, custom_ar, model_dir, int8_mode, is_sparse, remove_padding);
 #endif
+    }
+  } else if (model_type == "llama") {
+    if (data_type == "fp16") {
+      ft_model = std::make_shared<LlamaTritonModel<half>>(tp, pp, custom_ar, model_dir);
+#ifdef ENABLE_BF16
+    } else if (data_type == "bf16") {
+      ft_model = std::make_shared<LlamaTritonModel<__nv_bfloat16>>(tp, pp, custom_ar, model_dir);
+#endif
+    } else if (data_type == "fp32") {
+      ft_model = std::make_shared<LlamaTritonModel<float>>(tp, pp, custom_ar, model_dir);
+    } else {
+      LOG_MESSAGE(TRITONSERVER_LOG_ERROR, dt_message.c_str());
     }
   } else {
     THROW_IF_BACKEND_MODEL_ERROR(TRITONSERVER_ErrorNew(TRITONSERVER_ERROR_UNSUPPORTED,
